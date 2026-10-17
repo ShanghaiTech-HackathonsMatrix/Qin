@@ -1,7 +1,7 @@
 ﻿import { projectAcademic, ACADEMIC_ID } from '../plugins/builtin/academic/projection.ts';
 import { PLUGIN_IDS, PROVIDERS, defaultSettings, validateSettings, type Provider, type TimetableSettings, type UserCorrections, type LessonOverride, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
 import { SNAPSHOT, type AcademicSnapshot } from '../plugins/builtin/academic/connectors.ts';
-import { splitSyncErrors } from './sync-errors.ts';
+import { explainSyncError, splitSyncErrors } from './sync-errors.ts';
 import type { PluginHost } from './plugin-host.ts';
 import type { SecureStore } from '../platform/strategies/kv/types.ts';
 import type { NotifyPort } from './notify/port.ts';
@@ -82,7 +82,7 @@ export class AcademicService {
         ——两百多页里任何一页慢一点，整轮报废。见 core/sync-errors.ts。
       */
       const {soft,hard}=splitSyncErrors(result.data.errors);
-      if(hard.length || result.data.rejectedEntities) throw new Error(hard.join('；') || '同步数据未能保存');
+      if(hard.length || result.data.rejectedEntities) throw new Error(hard.length?explainSyncError(hard[0]):'同步数据未能保存');
       const previous=this.snapshots;
       this.readSnapshots();this.migrateLessonCorrections(previous);
       const snap=this.snapshots.find(x=>x.provider===provider);
@@ -92,7 +92,13 @@ export class AcademicService {
         根本没写新快照，`readSnapshots()` 读到的是上一轮的旧数据 —— 这时候报
         「同步成功」就是在骗人。`syncedAt` 是本轮写进去的，对不上就是旧的。
       */
-      if(soft.length && snap.syncedAt!==now) throw new Error(`这一轮一个页面都没读回来（${soft[0]}），保留上次结果`);
+      /*
+        顺序要紧：先判断「这一轮有没有真的写进新快照」，再判断「库里有快照吗」。
+        反过来写就会踩到刚踩过的坑 —— 全新安装（库里本来就没有快照）时
+        入口页一失败，就会先撞上「本次未得到有效数据」这句什么也没说的话，
+        真正的原因（`page-1: EREDIRECT …`）被吃掉。
+      */
+      if(soft.length && (!snap || snap.syncedAt!==now)) throw new Error(`这一轮一个页面都没读回来：${explainSyncError(soft[0])}`);
       // 只在用户尚未调整节次前采用网站识别的作息。
       if(provider==='eams' && snap.periods.length && !(await this.kv.get('academic.periods-edited'))) {
         const candidate={...this.settings,periods:snap.periods};validateSettings(candidate);this.settings=candidate;await this.persist();

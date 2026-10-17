@@ -9,7 +9,7 @@ import { AcademicService } from '../../../core/academic-service.ts';
 import { AcademicTransport, academicSessionFor } from '../../../core/academic-transport.ts';
 import { createCore, MockTransport } from '../../../core/index.ts';
 import { PluginHost } from '../../../core/plugin-host.ts';
-import { splitSyncErrors } from '../../../core/sync-errors.ts';
+import { explainSyncError, splitSyncErrors } from '../../../core/sync-errors.ts';
 import { KvEntityBackend } from '../../../core/kv-entity-backend.ts';
 import type { SecureStore } from '../../../platform/strategies/kv/types.ts';
 import type { NotifyPort, ScheduledNotification } from '../../../core/notify/port.ts';
@@ -196,4 +196,18 @@ test('同步错误分类：单页传输错误可忍，解析器抛错与落盘�
     'page-7: EHTTP 平台返回 500',
   ]);
   assert.equal(hard.length,3);
+});
+
+test('登录过期（EREDIRECT）不算「某页慢了」，必须整轮失败',()=>{
+  const {soft,hard}=splitSyncErrors([
+    'page-1: EREDIRECT 跳转目标不在白名单: https://sso.shanghaitech.edu.cn/login',
+    'page-9: ETIMEDOUT 平台请求超时',
+  ]);
+  assert.deepEqual(soft,['page-9: ETIMEDOUT 平台请求超时']);
+  assert.equal(hard.length,1,'EREDIRECT 放行下去会读回零页，然后把真正的原因埋掉');
+});
+
+test('错误码翻译成人话：EREDIRECT 要说「重新登录」',()=>{
+  assert.match(explainSyncError('page-1: EREDIRECT 跳转目标不在白名单'),/重新点「登录」/);
+  assert.match(explainSyncError('插件 x 的 parsers.page() 抛出异常: LOGIN_REQUIRED：登录已过期'),/重新登录/);
 });

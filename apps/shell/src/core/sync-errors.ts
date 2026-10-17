@@ -22,11 +22,16 @@
 /**
  * `page-56: ENET 平台请求失败：SocketTimeoutException`
  *
- * 前半段是 `broker` 拼的请求 id（`page-${n}`），后半段是网关的错误码
- * （`ENET` / `ETIMEDOUT` / `EHTTP` …）。只认这个形状 —— 宁可少忍，
- * 也不要因为正则太松把真正的失败当成可忽略。
+ * 前半段是 `broker` 拼的请求 id（`page-${n}`），后半段是网关的错误码。
+ *
+ * 这里用**白名单**而不是「凡 E 开头就放行」—— 教训是踩出来的：
+ * `EREDIRECT` 意味着平台把请求转去了登录页（会话过期），网关不放行跨域跳转。
+ * 这种错误放行下去，整轮就会「成功」地读回零页，然后抛一句
+ * 「本次未得到有效数据」，把真正的原因（登录过期）埋掉。
+ * 所以只有下面这三个算「这一页没回来」。
  */
-const PAGE_TRANSPORT = /^page-\d+:\s*E[A-Z]{2,}\b/;
+const SOFT_CODES = new Set(['ENET', 'ETIMEDOUT', 'EHTTP']);
+const PAGE_ERROR = /^page-\d+:\s*(E[A-Z]{2,})\b/;
 
 export interface SyncErrorSplit {
   /** 某一页没发出去或没回来。这一轮仍然有效，只是可能少几条。 */
@@ -38,6 +43,23 @@ export interface SyncErrorSplit {
 export function splitSyncErrors(errors: readonly string[]): SyncErrorSplit {
   const soft: string[] = [];
   const hard: string[] = [];
-  for (const e of errors) (PAGE_TRANSPORT.test(e) ? soft : hard).push(e);
+  for (const e of errors) {
+    const code = PAGE_ERROR.exec(e)?.[1];
+    (code !== undefined && SOFT_CODES.has(code) ? soft : hard).push(e);
+  }
   return { soft, hard };
+}
+
+/**
+ * 把网关/解析器的错误码翻成人话。
+ *
+ * 用户看到的最后一句话往往就是这个函数的结果 —— 所以它必须说清楚
+ * **下一步该干什么**，而不是把 `EREDIRECT` 这种内部码原样甩出去。
+ */
+export function explainSyncError(raw: string): string {
+  if (/EREDIRECT/i.test(raw)) return `${raw}\n（平台把请求转去了登录页，多半是登录已过期 —— 重新点「登录」走一遍再同步）`;
+  if (/LOGIN_REQUIRED/i.test(raw)) return '登录已过期，请重新登录';
+  if (/EAUTH/i.test(raw)) return `${raw}\n（平台不认这次会话，重新登录再同步）`;
+  if (/ENET|ETIMEDOUT/i.test(raw)) return `${raw}\n（网络没通或太慢，换个网络再试）`;
+  return raw;
 }

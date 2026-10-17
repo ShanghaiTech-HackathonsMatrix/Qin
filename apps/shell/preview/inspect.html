@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>inspect</title></head>
+<body>
+<pre id="out">reading…</pre>
+<script type="module">
+  const out = document.getElementById('out');
+  const log = [];
+  try {
+    const web = await import('/src/platform/sql/web-sqlite.ts');
+    const db = await web.openWebSqlite('matrix_timeline');
+    const tables = await db.all("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
+    log.push('tables: ' + tables.map((t) => t.name).join(', '));
+    const indexes = await db.all("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    log.push('indexes: ' + indexes.map((t) => t.name).join(', '));
+    for (const t of tables) {
+      const name = String(t.name);
+      if (name.startsWith('plugin_') || name.startsWith('core_')) {
+        const rows = await db.all(`SELECT COUNT(*) AS n FROM ${name}`);
+        log.push(`${name}: ${rows[0].n} rows`);
+      }
+    }
+    const titles = await db.all("SELECT json_extract(doc, '$.title') AS title, json_extract(doc, '$.dueAt') AS dueAt FROM plugin_app_matrix_timeline_task ORDER BY dueAt LIMIT 8");
+    log.push('tasks: ' + titles.map((r) => `${r.title}@${r.dueAt ?? 'null'}`).join(' | '));
+  } catch (e) {
+    log.push('failed: ' + (e && e.message ? e.message : String(e)));
+  }
+  out.textContent = log.join('\n');
+</script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>measure</title>
+  <style>
+    html, body { margin: 0; font: 12px/1.5 monospace; }
+    iframe { width: 390px; height: 844px; border: 0; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+<!--
+  开发自检页：在 390×844 的 iframe 里加载真实应用，读取几何与文本。
+  参数：
+    url     —— 要加载的应用地址（默认 /?demo=1）
+    click   —— 加载后要点击的 CSS 选择器（可重复 click=…&click=…）
+    width / height —— 视口尺寸
+    text    —— text=0 时不输出正文
+-->
+<pre id="out">measuring…</pre>
+<iframe id="f"></iframe>
+<script>
+  const params = new URLSearchParams(location.search);
+  const target = params.get('url') || '/?demo=1';
+  const clicks = params.getAll('click');
+  const wantText = params.get('text') !== '0';
+  const width = Number(params.get('width') || 390);
+  const height = Number(params.get('height') || 844);
+
+  const frame = document.getElementById('f');
+  frame.style.width = width + 'px';
+  frame.style.height = height + 'px';
+  frame.src = target;
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  frame.onload = async () => {
+    await wait(1400);
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    const lines = [];
+
+    for (const selector of clicks) {
+      const el = doc.querySelector(selector);
+      if (el === null) { lines.push(`click ${selector}: NOT FOUND`); continue; }
+      el.click();
+      await wait(700);
+      lines.push(`click ${selector}: ok`);
+    }
+
+    lines.push(`viewport ${win.innerWidth}x${win.innerHeight}`);
+
+    const scroll = doc.querySelector('.app__body');
+    if (scroll !== null) {
+      lines.push(`app__body scrollH=${scroll.scrollHeight} clientH=${scroll.clientHeight}`);
+      const over = [...scroll.querySelectorAll('*')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
+        .slice(0, 6)
+        .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`);
+      lines.push(`h-overflow: ${over.length ? over.join(', ') : 'none'}`);
+    }
+
+    const sel = [
+      '.topbar', '.tabbar', '.quest-intro', '.next-class-card', '.ddl-card',
+      '.ddl-detail', '.conn', '.schedule-entry', '.tl-item', '.demo-list__row',
+      '.quest-section__head',
+    ];
+    for (const s of sel) {
+      const el = doc.querySelector(s);
+      if (el === null) { lines.push(`${s}: (absent)`); continue; }
+      const r = el.getBoundingClientRect();
+      const over = el.scrollWidth > el.clientWidth + 1;
+      lines.push(`${s}: ${Math.round(r.width)}x${Math.round(r.height)} top=${Math.round(r.top)}`
+        + (over ? `  ⚠ h-overflow ${el.scrollWidth}>${el.clientWidth}` : ''));
+    }
+
+    const counts = {};
+    for (const s of ['.tl-item', '.schedule-entry', '.demo-list__row', '.ddl-card']) {
+      counts[s] = doc.querySelectorAll(s).length;
+    }
+    lines.push('counts: ' + JSON.stringify(counts));
+
+    if (wantText) {
+      const clone = doc.querySelector('#root');
+      if (clone !== null) {
+        lines.push('--- text ---');
+        lines.push(clone.textContent.replace(/\s+/g, ' ').trim());
+      }
+    }
+
+    document.getElementById('out').textContent = lines.join('\n');
+  };
+</script>
+</body>
+</html>

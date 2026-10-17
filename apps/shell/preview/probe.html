@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>probe</title></head>
+<body>
+<!--
+  开发自检页：直接驱动 web 端的 SQLite 驱动，验证「能用」与「能跨页面持久化」。
+    ?mode=write —— 写一行
+    ?mode=read  —— 读回来（换一次页面加载，就是全新的 JS 上下文）
+-->
+<pre id="out">probing…</pre>
+<script type="module">
+  const out = document.getElementById('out');
+  const mode = new URLSearchParams(location.search).get('mode') ?? 'read';
+  const NAME = '__persist_test';
+  const log = [];
+  try {
+    const web = await import('/src/platform/sql/web-sqlite.ts');
+    const db = await web.openWebSqlite(NAME);
+    await db.exec('CREATE TABLE IF NOT EXISTS t(id TEXT PRIMARY KEY, v TEXT NOT NULL)');
+
+    if (mode === 'write') {
+      const stamp = String(Date.now());
+      await db.run('INSERT OR REPLACE INTO t(id, v) VALUES (?, ?)', ['k', stamp]);
+      log.push('wrote ' + stamp);
+    }
+
+    const rows = await db.all('SELECT v FROM t WHERE id = ?', ['k']);
+    log.push('read back: ' + JSON.stringify(rows));
+    log.push('info: ' + JSON.stringify(await db.info()));
+  } catch (e) {
+    log.push('failed: ' + (e && e.message ? e.message : String(e)));
+  }
+  out.textContent = log.join('\n');
+</script>
+</body>
+</html>

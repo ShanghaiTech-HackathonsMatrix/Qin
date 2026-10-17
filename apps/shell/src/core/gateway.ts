@@ -195,6 +195,7 @@ export class NetGateway {
     headers: Record<string, string>,
     body: string | undefined,
     deadline: number,
+    session?: string | null,
   ): Promise<TransportResponse> {
     const idempotent = IDEMPOTENT_METHODS.has(method);
     const maxAttempts = idempotent ? 1 + this.config.retryCount : 1;
@@ -215,6 +216,7 @@ export class NetGateway {
 
       try {
         const res = await this.deps.transport.request({
+          session,
           url,
           method,
           headers,
@@ -370,7 +372,7 @@ export class NetGateway {
 
       let res;
       try {
-        res = await this.sendWithRetry(current.url.href, method, headers, body, deadline);
+        res = await this.sendWithRetry(current.url.href, method, headers, body, deadline, req.session);
       } catch (e) {
         return fail(e);
       }

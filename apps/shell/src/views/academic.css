@@ -1,0 +1,19 @@
+﻿.academic { min-width: 0; }
+.academic summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.academic-source { display: grid; gap: 8px; border-bottom: 1px solid var(--line); padding: 16px 0; margin-bottom: 12px; }
+.academic-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.academic-grid { display: grid; min-width: 540px; background: var(--bg-1); }
+.academic-cell { min-height: 65px; padding: 4px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.academic-head { text-align: center; font-weight: 600; min-height: 45px; }
+.academic small { display: block; font-size: 11px; }
+.academic-period { text-align: center; color: var(--muted); font-size: 12px; padding-top: 12px; }
+.academic-lesson { min-width: 0; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px 5px; background: color-mix(in srgb, var(--accent) 13%, var(--bg-1)); border: 1px solid var(--accent-line); border-radius: 7px; font-size: 12px; overflow-wrap: anywhere; margin-top: 3px; margin-bottom: 3px; z-index: 1; }
+.academic-lesson--other { opacity: .45; }
+.academic-pair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.academic-period-editor { display: grid; grid-template-columns: 44px minmax(0,1fr) 12px minmax(0,1fr); gap: 5px; align-items: center; }
+.academic-checkbox { display: flex; gap: 8px; margin: 12px 0; align-items: center; }
+.academic-task { display: grid; gap: 8px; text-align: left; width: 100%; }
+.academic-list-item { display: block; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 12px 0; }
+.academic h3 { margin: 4px 0; }
+.academic .sheet-backdrop { z-index: 100; }
+.academic input[type=time], .academic input[type=date], .academic input[type=datetime-local] { min-width: 0; max-width: 100%; }

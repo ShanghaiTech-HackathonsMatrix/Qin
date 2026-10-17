@@ -88,7 +88,7 @@ import {
 
 import { FORBIDDEN_REQUEST_HEADERS } from './gateway.ts';
 import type { Core } from './index.ts';
-import { errorCode, type NetResponse } from './types.ts';
+import { CoreError, errorCode, type NetResponse } from './types.ts';
 
 // ------------------------------------------------------------ 审计
 
@@ -196,6 +196,9 @@ export function compiledInVerifier(modules: ReadonlyMap<string, PluginExports>) 
 // ------------------------------------------------------------ 适配器
 
 export interface PluginHostOptions {
+  maxSteps?: number;
+  /** 宿主依据插件身份绑定平台会话。插件不能自己传入或选择句柄。 */
+  sessionFor?: (pluginId: string) => string | undefined;
   core: Core;
   /** 第一方插件模块。第三方走沙箱运行时（P2） */
   modules?: ReadonlyMap<string, PluginExports>;
@@ -293,6 +296,7 @@ export class PluginHost {
   readonly registry: PluginRegistry;
 
   private readonly core: Core;
+  private readonly sessionFor: PluginHostOptions['sessionFor'];
   private readonly broker: SyncBroker;
   private readonly runtime: InProcessRuntime;
   /** pluginId → 当前能力令牌 id */
@@ -312,6 +316,7 @@ export class PluginHost {
 
   constructor(opts: PluginHostOptions) {
     this.core = opts.core;
+    this.sessionFor = opts.sessionFor;
     this.clock = opts.now ?? (() => Date.now());
     this.sink = opts.audit;
     this.maxLocalBytes = opts.maxLocalBytes ?? 8 * 1024 * 1024;
@@ -353,6 +358,7 @@ export class PluginHost {
     });
 
     this.broker = new SyncBroker({
+      maxSteps: opts.maxSteps,
       fetch: (req, ctx) => this.dispatchFetch(ctx.pluginId, req),
       domainsFor: (pluginId) => this.registry.get(pluginId)?.granted.netDomains ?? [],
       emit: (pluginId, entity) => this.emitEntity(pluginId, entity),
@@ -524,6 +530,12 @@ export class PluginHost {
    *
    * 返回**不致命**的错误描述，由调用方塞进 `SyncReport.errors`。
    */
+  async refreshSlots(pluginId: string): Promise<void> {
+    const errors = this.collectSlotsFor(pluginId);
+    const saved = await this.bus.flush();
+    if (errors.length || !saved.ok) throw new Error(errors.join('；') || (!saved.ok ? saved.message : ''));
+  }
+
   private collectSlotsFor(pluginId: string): string[] {
     const rec = this.registry.get(pluginId);
     if (!rec) return [];
@@ -854,8 +866,8 @@ export class PluginHost {
   /**
    * 把内核的「给我这个 URL」翻译成核心层的「拿令牌调 net.request」。
    *
-   * 刻意**不**传 `session`：会话句柄的发放是宿主的事，不是插件能要求的。
-   * 按插件准备会话属于鉴权代理那一块（§8.2，目前只搭了半截），P2 再补。
+   * `session` 仅由宿主按插件身份绑定，插件不能自行指定。
+   * 内置学业连接器由宿主绑定原生会话；通用插件鉴权代理仍未开放。
    */
   private async dispatchFetch(
     pluginId: string,
@@ -884,12 +896,32 @@ export class PluginHost {
 
     // ③ 出网。核心层会做 URL 校验、白名单、限流、跳转复检、大小上限、审计
     try {
-      const res = (await this.core.call(tokenId, 'net.request', {
+      const deadline = this.clock() + this.core.net.status().defaultTimeoutMs;
+      const request = {
+        session: this.sessionFor?.(pluginId),
         url: req.url,
         method: req.method,
         ...(req.body !== undefined ? { body: req.body } : {}),
         ...(req.headers !== undefined ? { headers: req.headers } : {}),
-      })) as NetResponse;
+      };
+      let res: NetResponse;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          res = await this.core.call(tokenId, 'net.request', {
+            ...request, timeoutMs: Math.max(1, deadline - this.clock()),
+          }) as NetResponse;
+          break;
+        } catch (e) {
+          // 大课表/目录扫描会耗尽令牌桶。按网关给出的时间等待同一页，
+          // 不重开整轮、不放宽配额；POST 等写请求不在宿主重复发送。
+          const wait = e instanceof CoreError ? Number(e.detail.retryAfterMs) : NaN;
+          if (!(e instanceof CoreError) || e.code !== 'ERATELIMIT'
+            || !['GET', 'HEAD'].includes(req.method ?? 'GET') || attempt >= 8
+            || !Number.isFinite(wait) || wait < 0 || wait + 1 >= deadline - this.clock()) throw e;
+          this.record(pluginId, 'net.rate_wait', `${Math.ceil(wait)}ms`);
+          await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.ceil(wait))));
+        }
+      }
 
       // 只把 body 交给插件。响应头（含 set-cookie）不进沙箱
       return ok({ status: res.status, body: res.body, url: res.url });

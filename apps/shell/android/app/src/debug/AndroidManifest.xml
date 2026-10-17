@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 仅调试包：独立原生窗口，不向外站注入 Capacitor 桥。 -->
+        <activity
+            android:name=".LoginProbeActivity"
+            android:exported="true"
+            android:process=":loginprobe"
+            android:label="平台登录验证"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>

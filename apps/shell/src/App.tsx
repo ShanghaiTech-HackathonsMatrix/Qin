@@ -38,8 +38,10 @@ import { PageView, WidgetPage } from './ui/WidgetPage';
 import { PLUGIN_ID as TIMELINE_PLUGIN_ID, SLOT_NAME } from './plugins/builtin/timeline/constants';
 import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
 import type { CourseCard, CourseDraft } from './core/course-cards';
+import AcademicView from './views/AcademicView';
+import { MatrixNotify } from '@matrix/capacitor-notify';
 
-type Tab = 'home' | 'timeline' | 'courses' | 'settings';
+type Tab = 'home' | 'timeline' | 'academic' | 'courses' | 'settings';
 const DEMO_MODE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1';
 const DEMO_DATA = DEMO_MODE ? createDemoData() : null;
 
@@ -136,6 +138,16 @@ export default function App() {
   useEffect(() => { void start(); }, [start]);
 
   const platform = boot.status === 'ready' ? boot.platform : null;
+  useEffect(() => {
+    if (!platform?.notify.isSupported()) return;
+    const consume = () => { void MatrixNotify.consumeTap?.().then(r => {
+      if (r.payload === 'academic') setTab('academic');
+    }).catch(() => undefined); };
+    consume();
+    window.addEventListener('matrix-notification', consume);
+    document.addEventListener('visibilitychange', consume);
+    return () => { window.removeEventListener('matrix-notification', consume); document.removeEventListener('visibilitychange', consume); };
+  }, [platform]);
 
   // ---------------------------------------------------------------- 数据
 
@@ -462,6 +474,7 @@ export default function App() {
   const resetAllData = useCallback(async () => {
     if (!platform) return;
     await platform.store.clearAll();
+    await platform.academic.clearData();
     await reload();
     flash('数据已清空');
   }, [platform, reload, flash]);
@@ -550,6 +563,14 @@ const TAB_ICONS = {
       <rect x="4" y="6" width="16" height="14" rx="2.5" />
       <path d="M4 10.5h16M8.5 4v3.5M15.5 4v3.5" />
       <path d="M8.5 14.5h3" />
+    </>
+  ),
+  // 摊开的书：课业
+  academic: (
+    <>
+      <path d="M12 7.5C10 6 7.5 5.5 4.5 5.8v11.4c3-.3 5.5.2 7.5 1.7" />
+      <path d="M12 7.5c2-1.5 4.5-2 7.5-1.7v11.4c-3-.3-5.5.2-7.5 1.7" />
+      <path d="M12 7.5v11.4" />
     </>
   ),
   // 行囊：设置
@@ -723,7 +744,7 @@ const TAB_ICONS = {
 
   // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
   const goTab = useCallback((to: string) => {
-    setTab(to === 'timeline' || to === 'courses' || to === 'settings' ? to : 'home');
+    setTab(to === 'timeline' || to === 'academic' || to === 'courses' || to === 'settings' ? to : 'home');
   }, []);
 
   // ---------------------------------------------------------------- 渲染
@@ -1140,6 +1161,8 @@ const TAB_ICONS = {
           </>
         )}
 
+        {tab === 'academic' && <AcademicView service={p.academic} onChanged={reload} />}
+
         {tab === 'courses' && (
           <>
             {/* 「课程」改成每日日程：课次与 DDL 混排，按天分组。 */}
@@ -1201,6 +1224,7 @@ const TAB_ICONS = {
         {([
           ['home', '首页', TAB_ICONS.home],
           ['timeline', `任务${openCount ? ` · ${openCount}` : ''}`, TAB_ICONS.timeline],
+          ['academic', '课业', TAB_ICONS.academic],
           ['courses', '日程', TAB_ICONS.courses],
           ['settings', '设置', TAB_ICONS.settings],
         ] as const).map(([id, label, icon]) => (

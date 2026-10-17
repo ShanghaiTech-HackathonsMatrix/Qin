@@ -13,6 +13,12 @@ import { KvEntityBackend } from '../core/kv-entity-backend';
 import { CapacitorNotifyPort } from '../core/notify/capacitor-port.ts';
 import type { NotifyPort } from '../core/notify/index.ts';
 import { PluginHost } from '../core/plugin-host';
+import { AcademicTransport, academicSessionFor, academicNativeAvailable, PlatformSessions } from '../core/academic-transport.ts';
+import { AcademicService } from '../core/academic-service.ts';
+import { CapacitorTransport } from '../core/transport.ts';
+import { createConnector, connectorManifest } from '../plugins/builtin/academic/connectors.ts';
+import { PROVIDERS, PLUGIN_IDS, ENTRY } from '../plugins/builtin/academic/model.ts';
+import { ACADEMIC_ID, projectionManifest, projectionPlugin } from '../plugins/builtin/academic/projection.ts';
 import { icsImporter, PLUGIN_ID as ICS_PLUGIN_ID, manifest as icsManifest } from '../plugins/builtin/importer-ics/index.ts';
 import {
   PLUGIN_ID as TIMELINE_PLUGIN_ID,
@@ -28,6 +34,7 @@ import type { TaskStore } from './strategies/store/types';
 import type { ResolutionReport } from './strategies/types';
 
 export interface Platform {
+  academic: AcademicService;
   kv: SecureStore;
   indexing: IndexingStrategy | null;
   /**
@@ -46,7 +53,7 @@ export interface Platform {
   /**
    * 插件宿主：内核（注册表 / 信任 / 数据总线 / 同步 broker）与核心层的接线。
    *
-   * 现在装了两个内置插件：ICS 导入（槽的消费方）与 Timeline（槽的定义方）。
+   * 内置 ICS、Timeline、三平台学业连接器及课表作业投影插件。
    * 插件实体经 `KvEntityBackend` 落到 KV，核心实体经 `CoreStoreBackend` 落到
    * SQLite/JSON —— 分流发生在 `CompositeBackend` 里，对外只有一个数据层。
    */
@@ -61,9 +68,8 @@ export interface Platform {
    * 通知桥 —— **平台无关**的接缝。
    *
    * 装配的是 `CapacitorNotifyPort`（两端统一的适配层），原生实现来自
-   * `packages/capacitor-notify/`。当前那份原生代码是**骨架**，如实报告不支持，
-   * 所以 `isSupported()` 为 false、`schedule()` 抛错 —— 也就是说这个构建
-   * **真的没有通知能力**，而且它会明说。
+   * `packages/capacitor-notify/`。Android 提供原生闹钟与通知，其他端如实报告不支持，
+   * 不支持的平台 `isSupported()` 为 false、`schedule()` 抛错，不伪装成排程成功。
    *
    * ⚠️ 它现在还没有被任何调度器调用，宿主也**没有**把 `notify.local` 放进
    * `IMPLEMENTED_CAPABILITIES`。等各端 bridge 真能排程了再一起加 ——
@@ -125,9 +131,10 @@ export async function bootstrap(): Promise<Platform> {
   const restored = await auditStore.load();
 
   const core = createCore({
+    ...(academicNativeAvailable() ? {transport:new AcademicTransport(new CapacitorTransport())} : {}),
     vaultBackend: kv.value,
     auditSink: auditStore.push,
-    gateway: { config: { allowlist: loadAllowlist() } },
+    gateway: { config: { allowlist: [...new Set([...loadAllowlist(), ...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname)])] } },
   });
 
   // 把读回来的历史记录灌进核心层的环形缓冲。
@@ -149,10 +156,14 @@ export async function bootstrap(): Promise<Platform> {
   let coreStore: TaskStore | null = null;
 
   const plugins = new PluginHost({
+    maxSteps: 605,
+    sessionFor: academicSessionFor,
     core,
     modules: new Map<string, PluginExports>([
       [ICS_PLUGIN_ID, icsImporter],
       [TIMELINE_PLUGIN_ID, timelinePlugin],
+      ...PROVIDERS.map(p=>[PLUGIN_IDS[p],createConnector(p)] as [string,PluginExports]),
+      [ACADEMIC_ID, projectionPlugin],
     ]),
     // 数据层的分流点：核心命名空间 → 物理存储（SQLite/JSON，有加密与索引），
     // 其它命名空间 → KV。对外只有一个 `DataBus`，差异只在这一个后端里。
@@ -235,6 +246,10 @@ export async function bootstrap(): Promise<Platform> {
   // 这一步同时把**核心记录**从物理层读进总线（`CoreStoreBackend.loadAll()`），
   // 所以它取代了原来的 `projectCore()` —— 启动时不再有「投影」这个动作，
   // 只有「读回」。之后所有写入都直接进总线，落盘由 flush 负责。
+  for (const manifest of [...PROVIDERS.map(connectorManifest),projectionManifest]) {
+    const result=await plugins.install(manifest,{allowReservedPrefix:true});
+    if(!result.ok) warnings.push(`学业插件安装失败：${result.message}`);
+  }
   const restoredEntities = await plugins.restoreData();
   if (!restoredEntities.ok) {
     warnings.push(`读取已存的数据失败：${restoredEntities.message}。本次以空数据启动。`);
@@ -250,10 +265,15 @@ export async function bootstrap(): Promise<Platform> {
   await notify.probe();
   if (!notify.isSupported()) {
     // 不是错误，是事实。写进 warnings 让调试面板与顶栏看得见。
-    warnings.push('本构建没有可用的通知桥：不会排任何提醒（各端 bridge 尚未实现）。');
+    warnings.push('本平台没有可用的本地通知桥，不能安排提醒。');
   }
 
+  const academic=new AcademicService({host:plugins,kv:kv.value,notify,available:academicNativeAvailable(),
+    login:provider=>PlatformSessions.login({provider}),clear:()=>PlatformSessions.clear()});
+  try {await academic.init();} catch(e) {warnings.push(`学业数据恢复失败：${e instanceof Error?e.message:String(e)}`);}
+
   return {
+    academic,
     kv: kv.value,
     indexing: idx.value,
     store: coreStore,

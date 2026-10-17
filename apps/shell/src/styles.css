@@ -29,6 +29,10 @@
   --fs: 15px;
   --fs-sm: 13px;
   --fs-xs: 11.5px;
+
+  /* 正文字号倍率，由设置页滑轨写入 .app 的 style。
+     注意别和上面的 --fs（基础字号）混了：这个只乘在阅读文本上。 */
+  --font-scale: 1;
 }
 
 [data-density='compact'] {
@@ -477,7 +481,7 @@ body, .app { background: #f7f7f3; color: #111; }
 .quest-intro__stats b { font-size: 19px; }
 .quest-section { margin-top: 20px; }
 .quest-section__head { display: flex; justify-content: space-between; align-items: end; margin-bottom: 12px; }
-.quest-section__head h2 { margin: 3px 0 0; font-size: 21px; }
+.quest-section__head h2 { margin: 3px 0 0; font-size: calc(21px * var(--font-scale)); }
 .quest-section__ornament { font-size: 11px; }
 .quest-list { display: grid; gap: 10px; }
 .quest-card { width: 100%; text-align: left; background: #fff; color: #111; border: 1.5px solid #111; padding: 12px; border-radius: 9px 11px 8px 10px; }
@@ -487,8 +491,8 @@ body, .app { background: #f7f7f3; color: #111; }
 .next-class-card__index { color: #d8d8d8; font: bold 11px Georgia, serif; letter-spacing: .09em; }
 .next-class-card__main { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .next-class-card__main > span:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.next-class-card__title { font-size: 21px; font-weight: 700; line-height: 1.3; }
-.next-class-card__meta { font-size: 13px; }
+.next-class-card__title { font-size: calc(21px * var(--font-scale)); font-weight: 700; line-height: 1.3; }
+.next-class-card__meta { font-size: calc(13.5px * var(--font-scale)); }
 .next-class-card__arrow { font-size: 27px; line-height: 1; }
 .next-class-card__hint { color: #bbb; font-size: 11px; }
 .quest-section__head--spaced { margin-top: 26px; }
@@ -497,16 +501,16 @@ body, .app { background: #f7f7f3; color: #111; }
 .schedule { display: grid; gap: 18px; }
 .schedule-day { display: grid; gap: 9px; }
 .schedule-day__head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 7px; border-bottom: 1.5px solid #111; }
-.schedule-day__head h2 { margin: 0; font-size: 16px; }
+.schedule-day__head h2 { margin: 0; font-size: calc(17px * var(--font-scale)); }
 .schedule-day__date { color: #555; font-size: 11px; }
 .schedule-day__count { margin-left: auto; color: #555; font-size: 11px; }
 .schedule-day__rows { display: grid; gap: 8px; }
 .schedule-entry { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 12px 12px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 8px 11px 9px 10px; font: inherit; text-align: left; cursor: pointer; }
 .schedule-entry:disabled { cursor: default; }
-.schedule-entry__time { font: bold 12px Georgia, serif; letter-spacing: .02em; }
+.schedule-entry__time { font: bold calc(13px * var(--font-scale)) Georgia, serif; letter-spacing: .02em; }
 .schedule-entry__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.schedule-entry__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
-.schedule-entry__body small { color: #555; font-size: 11px; }
+.schedule-entry__body strong { font-size: calc(15.5px * var(--font-scale)); line-height: 1.35; overflow-wrap: anywhere; }
+.schedule-entry__body small { color: #555; font-size: calc(12px * var(--font-scale)); }
 .schedule-entry__tag { font-size: 10px; color: #555; border: 1px solid #bbb; border-radius: 5px; padding: 2px 5px; white-space: nowrap; }
 .schedule-entry[data-kind='class'] { background: #111; color: #fff; }
 .schedule-entry[data-kind='class'] .schedule-entry__body small,
@@ -531,16 +535,28 @@ body, .app { background: #f7f7f3; color: #111; }
 .ddl-card { display: grid; grid-template-columns: 62px 1fr 20px; gap: 12px; align-items: center; width: 100%; padding: 13px 12px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 8px 11px 9px 10px; font: inherit; text-align: left; cursor: pointer; }
 .ddl-card:active { background: #f0f0ec; }
 .ddl-card__time { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding-right: 11px; border-right: 1px solid #c8c8c2; }
-.ddl-card__time strong { font: bold 17px Georgia, serif; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.ddl-card__time em { font-size: 10px; font-style: normal; color: #555; white-space: nowrap; }
+.ddl-card__time strong { font: bold calc(18.5px * var(--font-scale)) Georgia, serif; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ddl-card__time em { font-size: calc(11.5px * var(--font-scale)); font-style: normal; color: #555; white-space: nowrap; }
 .ddl-card__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.ddl-card__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
-.ddl-card__body small { font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ddl-card__body strong { font-size: calc(15.5px * var(--font-scale)); line-height: 1.35; overflow-wrap: anywhere; }
+.ddl-card__body small { font-size: calc(12px * var(--font-scale)); color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ddl-card__arrow { font-size: 17px; text-align: right; }
-.ddl-card[data-overdue='true'] { border-style: dashed; background: #111; color: #fff; }
-.ddl-card[data-overdue='true'] .ddl-card__time { border-right-color: #555; }
+/*
+  逾期未完成 ≠ 已完成。
+  之前这里整张卡反白成黑底白字，看起来像「已经处理掉了」，
+  和「已完成」的观感撞在一起。改成灰纸 + 虚线边：
+  弱下去、但仍在场，语义靠那行「已逾期」的字扛。
+*/
+.ddl-card[data-overdue='true'] {
+  border-style: dashed;
+  border-color: #b4b4ae;
+  background: #f0f0ea;
+  color: #75756f;
+}
+.ddl-card[data-overdue='true'] .ddl-card__time { border-right-color: #cfcfc9; }
 .ddl-card[data-overdue='true'] .ddl-card__time em,
-.ddl-card[data-overdue='true'] .ddl-card__body small { color: #ccc; }
+.ddl-card[data-overdue='true'] .ddl-card__body small { color: #8d8d87; }
+.ddl-card[data-overdue='true'] .ddl-card__time em { color: #5f5f5a; font-weight: 600; }
 .demo-overlay-backdrop { position: fixed; inset: 0; z-index: 80; padding: 20px; background: rgb(0 0 0 / .55); display: grid; place-items: center; }
 .demo-overlay { position: relative; width: min(520px, 100%); max-height: min(680px, 90vh); overflow: auto; padding: 25px 20px 22px; background: #f7f7f3; color: #111; border: 2px solid #111; border-radius: 12px 9px 11px 10px; }
 .demo-overlay h2 { margin: 6px 0 5px; font-size: 27px; }
@@ -678,8 +694,8 @@ body, .app { background: #f7f7f3; color: #111; }
   flex-direction: column;
   gap: clamp(6px, 1.2vh, 11px);
   overflow: hidden;
-  /* 底部要给标签栏 + 右下角「＋」留位，否则圆钮会压住最后一排卡片 */
-  padding-bottom: calc(45px + 10px + 50px + 6px + env(safe-area-inset-bottom));
+  /* 底部只留标签栏的高度。加号搬进人物卡之后，不必再为浮动圆钮预留 50px */
+  padding-bottom: calc(45px + 12px + env(safe-area-inset-bottom));
 }
 .app__body[data-page='home'] .demo-ribbon { margin-bottom: 0; padding: 5px; font-size: 10px; }
 
@@ -758,6 +774,24 @@ body, .app { background: #f7f7f3; color: #111; }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 .home-slot[data-dragging='true'] { opacity: .55; outline: 2px dashed #111; outline-offset: 3px; }
 .home-slot--add { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 13px; background: #fff; color: #111; border: 1.5px dashed #111; border-radius: 9px 11px 8px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.slider { display: flex; align-items: center; gap: 10px; }
+.slider input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  margin: 0;
+  accent-color: #111;
+  cursor: pointer;
+}
+.slider__value {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font: bold 13px Georgia, serif;
+  font-variant-numeric: tabular-nums;
+  color: #111;
+}
+
 .home-empty { padding: 15px 12px; background: #fff; color: #555; border: 1.5px dashed #b9b9b3; border-radius: 8px; font-size: 12px; text-align: center; }
 /* 半宽卡落单时那一列的空位（只在编辑态显示） */
 .home-slot--gap { display: flex; align-items: center; justify-content: center; min-height: 56px; color: #9a9a94; border: 1.5px dashed #d5d5cf; border-radius: 8px; font-size: 11px; }
@@ -801,24 +835,50 @@ body, .app { background: #f7f7f3; color: #111; }
 button.log-row:active { background: #f0f0ec; }
 .log-row[data-static='true'] { cursor: default; border-style: dashed; }
 .log-row__due { display: flex; flex-direction: column; gap: 2px; padding-right: 10px; border-right: 1px solid #c8c8c2; min-width: 0; }
-.log-row__due b { font: bold 11.5px Georgia, serif; letter-spacing: -.01em; line-height: 1.3; }
-.log-row__due em { font-size: 10px; font-style: normal; color: #555; white-space: nowrap; }
+.log-row__due b { font: bold calc(13px * var(--font-scale)) Georgia, serif; letter-spacing: -.01em; line-height: 1.3; }
+.log-row__due em { font-size: calc(11.5px * var(--font-scale)); font-style: normal; color: #555; white-space: nowrap; }
 .log-row__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.log-row__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
-.log-row__body small { font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-row__body strong { font-size: calc(15.5px * var(--font-scale)); line-height: 1.35; overflow-wrap: anywhere; }
+.log-row__body small { font-size: calc(12px * var(--font-scale)); color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-row__arrow { font-size: 15px; text-align: right; }
-.log-row[data-overdue='true'] { background: #111; color: #fff; border-style: dashed; }
-.log-row[data-overdue='true'] .log-row__due { border-right-color: #555; }
+.log-row[data-overdue='true'] {
+  border-style: dashed;
+  border-color: #b4b4ae;
+  background: #f0f0ea;
+  color: #75756f;
+}
+.log-row[data-overdue='true'] .log-row__due { border-right-color: #cfcfc9; }
 .log-row[data-overdue='true'] .log-row__due em,
-.log-row[data-overdue='true'] .log-row__body small { color: #ccc; }
+.log-row[data-overdue='true'] .log-row__body small { color: #8d8d87; }
+.log-row[data-overdue='true'] .log-row__due em { color: #5f5f5a; font-weight: 600; }
 
 /* 提示气泡：贴在「＋」上方居中，不跟圆钮抢位置 */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(45px + 10px + 50px + 14px + env(safe-area-inset-bottom)); z-index: 90; max-width: calc(100% - 32px); padding: 9px 15px; background: #111; color: #fff; border-radius: 8px 10px 7px 9px; font-size: 12px; text-align: center; }
 
 /* ---------------------------------------------------------- 悬浮加号 */
-.fab { position: fixed; right: 16px; bottom: calc(45px + 10px + env(safe-area-inset-bottom)); z-index: 40; width: 50px; height: 50px; display: grid; place-items: center; padding: 0; background: #111; color: #fff; border: 2px solid #111; border-radius: 50%; font-size: 25px; line-height: 1; cursor: pointer; }
-.fab span { transform: translateY(-1px); }
-.fab:active { background: #fff; color: #111; }
+/*
+  加号长在人物卡的统计行末尾。
+  之前它是个 position: fixed 的黑色圆钮，浮在内容上面 ——
+  虽然留了底部 padding 不挡最后一张卡，但视觉上始终是「贴在屏幕上的外挂」。
+*/
+.quest-intro__add {
+  flex: none;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: #111;
+  color: #fff;
+  border: 2px solid #111;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.quest-intro__add span { transform: translateY(-1px); }
+.quest-intro__add:active { background: #fff; color: #111; }
 
 /* ---------------------------------------------------------- 快速添加 */
 .quick { max-height: 82%; }

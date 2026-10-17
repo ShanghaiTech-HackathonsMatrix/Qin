@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Course, Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
@@ -85,6 +85,14 @@ export default function App() {
    * 界面上明确标成「仅本次会话有效」。
    */
   const [demoExtraTasks, setDemoExtraTasks] = useState<Task[]>([]);
+  /**
+   * 演示态里被**改过**的虚构任务。
+   *
+   * 演示数据是每次刷新现生成的常量，不能就地改写；
+   * 但用户点了「标记完成」或改了截止时间，界面得立刻反映出来。
+   * 所以按 id 存一份覆盖层，读的时候盖在 DEMO_DATA.tasks 上面。
+   */
+  const [demoOverrides, setDemoOverrides] = useState<Record<string, Task>>({});
 
   /** 首页卡片定制：编辑态、正在拖的那一张、添加卡片面板 */
   const [homeEditing, setHomeEditing] = useState(false);
@@ -147,19 +155,54 @@ export default function App() {
 
   useEffect(() => { void reload(); }, [reload]);
 
+  /**
+   * 保存任务。
+   *
+   * 演示态**不写库** —— 只改内存里的两份 state。
+   * 这里原来无条件 `platform.store.putTask()`，于是演示模式下用「＋」
+   * 新建的任务直接进了本机数据库，而界面读的是 DEMO_DATA + demoExtraTasks，
+   * 根本看不见它：表现为「加了没反应、右上角的计数也不动」，
+   * 顺带还违反了「演示不落盘」的约定。
+   */
   const saveTask = useCallback(async (t: Task) => {
+    setEditor({ open: false, task: null });
+
+    if (DEMO_DATA !== null) {
+      const isDemoTask = DEMO_DATA.tasks.some((d) => d.id === t.id);
+      if (isDemoTask) {
+        setDemoOverrides((prev) => ({ ...prev, [t.id]: t }));
+      } else {
+        setDemoExtraTasks((prev) =>
+          prev.some((p) => p.id === t.id) ? prev.map((p) => (p.id === t.id ? t : p)) : [...prev, t],
+        );
+      }
+      flash('已保存 · 演示数据，仅本次会话有效');
+      return;
+    }
+
     if (!platform) return;
     await platform.store.putTask(t);
-    setEditor({ open: false, task: null });
     await reload();
-  }, [platform, reload]);
+  }, [platform, reload, flash]);
 
   const deleteTask = useCallback(async (id: string) => {
+    setEditor({ open: false, task: null });
+
+    if (DEMO_DATA !== null) {
+      setDemoExtraTasks((prev) => prev.filter((p) => p.id !== id));
+      setDemoOverrides((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      flash('已删除 · 演示数据，仅本次会话有效');
+      return;
+    }
+
     if (!platform) return;
     await platform.store.deleteTask(id);
-    setEditor({ open: false, task: null });
     await reload();
-  }, [platform, reload]);
+  }, [platform, reload, flash]);
 
   /**
    * 批量添加（「＋ → 导入文字」按行拆出来的标题）。
@@ -463,7 +506,9 @@ export default function App() {
     : '';
   const storeDegraded = storeSlotId === 'store.json';
 
-  const visibleTasks = DEMO_DATA !== null ? [...DEMO_DATA.tasks, ...demoExtraTasks] : tasks;
+  const visibleTasks = DEMO_DATA !== null
+    ? [...DEMO_DATA.tasks.map((t) => demoOverrides[t.id] ?? t), ...demoExtraTasks]
+    : tasks;
   const visibleCourses = DEMO_DATA?.courses ?? courses;
   const visibleCourseCount = DEMO_DATA?.courses.length ?? courseCards.length;
   const openCount = visibleTasks.filter((t) => t.status === 'open').length;
@@ -679,6 +724,10 @@ export default function App() {
             </div>
             <div className="quest-intro__stats">
               <span><b>{String(openCount).padStart(2, '0')}</b> 待办任务</span><span><b>{String(overdueCount).padStart(2, '0')}</b> 已逾期</span><span><b>{String(visibleCourseCount).padStart(2, '0')}</b> 门课程</span>
+              {/* 加号就长在这张人物卡上，不再是浮在屏幕右下角、挡住内容的圆按钮 */}
+              <button className="quest-intro__add" onClick={() => setQuickAdd(true)} aria-label="添加任务">
+                <span aria-hidden="true">＋</span>
+              </button>
             </div>
           </section>
         );
@@ -781,7 +830,7 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className="app" style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
       <div className="topbar">
         <div className="topbar__identity">
           <span className="topbar__sigil" aria-hidden="true">✳</span>
@@ -796,7 +845,7 @@ export default function App() {
             {homeEditing ? '完成' : '定制'}
           </button>
         )}
-        {tab === 'timeline' && !DEMO_MODE && (
+        {tab === 'timeline' && (
           <button className="btn btn--primary btn--sm" onClick={() => setEditor({ open: true, task: null })}>
             ＋ 新建
           </button>
@@ -1037,10 +1086,6 @@ export default function App() {
       </div>
 
       {/* 右下角「＋」：导入文字 / 自主添加。做成常驻圆钮，任何时候都能加东西。 */}
-      <button className="fab" onClick={() => setQuickAdd(true)} aria-label="添加任务">
-        <span aria-hidden="true">＋</span>
-      </button>
-
       <div className="tabbar">
         {([
           ['home', '首页'],

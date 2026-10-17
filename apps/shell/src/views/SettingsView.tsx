@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform/bootstrap';
 import {
-  DENSITY_LABEL, LAYOUT_LABEL,
+  DENSITY_LABEL, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, LAYOUT_LABEL,
   type AppSettings, type Density, type Layout,
 } from '../app/settings';
 
@@ -252,6 +252,25 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
                 {DENSITY_LABEL[d]}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="lbl">字体大小</label>
+          <div className="slider">
+            <input
+              type="range"
+              min={FONT_SCALE_MIN}
+              max={FONT_SCALE_MAX}
+              step={FONT_SCALE_STEP}
+              value={settings.fontScale}
+              onChange={(event) => onChange({ fontScale: Number(event.target.value) })}
+              aria-label="字体大小"
+            />
+            <span className="slider__value">{Math.round(settings.fontScale * 100)}%</span>
+          </div>
+          <div className="faint" style={{ marginTop: 6 }}>
+            只放大正文与截止时间，不放大图标和间距。调到 100% 是设计稿原尺寸。
           </div>
         </div>
 

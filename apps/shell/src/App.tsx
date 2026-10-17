@@ -623,9 +623,15 @@ const TAB_ICONS = {
 } as const;
 
 /** 插件槽里的课次（ICS 导入的课表）。演示模式下不读，避免和虚构数据混在一起 */
+  /*
+    `academicTick` 必须在依赖里。
+    同步的写入顺序是「存快照 → 通知 → 投影写进槽」，订阅在中间就响了：
+    那一刻 `hasAcademic` 刚变 true，槽还是空的，读到空数组后被 memo 记住，
+    之后再没有依赖变化 —— 首页的「下一节课」就永远是空的。
+  */
   const slotEntries = useMemo(
     () => (DEMO_MODE && !hasAcademic ? [] : (pluginsRef?.readSlot(SLOT_NAME) ?? [])),
-    [pluginsRef, hasAcademic],
+    [pluginsRef, hasAcademic, academicTick],
   );
 
   /**

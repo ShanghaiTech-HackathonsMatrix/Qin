@@ -13,8 +13,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const ADB = `${process.env.LOCALAPPDATA}\\qin-toolchain\\android-sdk\\platform-tools\\adb.exe`;
-const PKG = 'dev.matrix.shell';
+const ADB = process.env.QIN_ADB ?? 'D:/Android/sdk/platform-tools/adb.exe';
+const PKG = process.env.QIN_PACKAGE ?? 'dev.matrix.shell';
 const PORT = 9334;
 
 const adb = (...args) => execFileSync(ADB, args, { encoding: 'utf8' }).trim();
@@ -32,7 +32,7 @@ async function targets() {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/json/list`);
       const list = await res.json();
-      const page = list.find((t) => t.type === 'page');
+      const page = list.find((t) => t.type === 'page' && (!process.env.QIN_CDP_TARGET || t.url.includes(process.env.QIN_CDP_TARGET)));
       if (page !== undefined) return page;
     } catch { /* 端口还没通 */ }
     await sleep(250);
@@ -97,6 +97,6 @@ if (shot !== undefined && shot !== '') {
   }
 }
 
-if (logs.length > 0) console.log('--- console ---\n' + logs.join('\n'));
+if (process.env.QIN_CDP_LOGS && logs.length > 0) console.log('--- console ---\n' + logs.join('\n'));
 ws.close();
 adb('forward', '--remove', `tcp:${PORT}`);

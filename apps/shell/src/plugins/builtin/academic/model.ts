@@ -14,6 +14,9 @@ export interface Assignment {
   id: string; courseId: string; title: string; url: string; provider: Provider;
   dueAt: number | null; lateDueAt: number | null; dueText: string;
   status: 'unknown' | 'not_submitted' | 'submitted' | 'graded';
+  needsReview?:boolean;
+  completedAt?:number;
+  verifiedAt?:number;
 }
 export interface LessonRule {
   id: string; courseId: string; title: string; code: string; term: string;
@@ -30,7 +33,7 @@ export interface LessonOverride {
   title?: string; teacher?: string; location?: string; weekday?: number; first?: number; last?: number;
   weeks?: number[]; note?: string; hidden?: boolean;
 }
-export interface AssignmentOverride { title?: string; dueAt?: number | null; note?: string; done?: boolean; hidden?: boolean }
+export interface AssignmentOverride { title?: string; dueAt?: number | null; note?: string; done?: boolean; completedAt?:number; hidden?: boolean }
 export interface UserCorrections { lessons: Record<string, LessonOverride>; assignments: Record<string, AssignmentOverride> }
 export const DEFAULT_PERIODS: Period[] = [
   ['08:15', '09:00', '上午'], ['09:10', '09:55', '上午'], ['10:15', '11:00', '上午'], ['11:10', '11:55', '上午'],
@@ -89,8 +92,7 @@ export function expandLessons(rules: LessonRule[], s: TimetableSettings, changes
   if (!s.weekOne) return [];
   const anchor = Date.parse(`${s.weekOne}T00:00:00+08:00`), events: AcademicEvent[] = [];
   for (const original of rules) {
-    const r = { ...original, ...changes.lessons[original.id] };
-    if (r.hidden) continue;
+    const r = { ...original, note:changes.lessons[original.id]?.note };
     if (!Number.isInteger(r.weekday) || r.weekday < 1 || r.weekday > 7 || !Number.isInteger(r.first) || !Number.isInteger(r.last) || r.first < 1 || r.last < r.first || r.last > s.periods.length) throw new Error(`课程“${r.title}”的星期或节次无效，请修正`);
     for (const week of [...new Set(r.weeks)]) {
       if (!Number.isInteger(week) || week < 1) throw new Error('课程周次无效');

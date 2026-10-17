@@ -34,6 +34,8 @@ export interface DdlItem {
   selfMade?: boolean;
   /** 已完成。日程页据此显示「完成」而不是「逾期」 */
   done?: boolean;
+  needsReview?: boolean;
+  completedAt?: number;
   description?: string;
   url?: string;
   /** 真实任务才有的回指：点开进编辑表单而不是演示详情 */
@@ -81,7 +83,7 @@ export function ddlsFromTasks(tasks: readonly Task[], allSelfMade = false): DdlI
       dueAt: t.dueAt,
       source: '本机记录',
       selfMade: allSelfMade || t.kind === 'custom',
-      ...(t.status === 'done' ? { done: true } : {}),
+      ...(t.status === 'done' ? { done: true, completedAt:t.updatedAt } : {}),
       ...(t.note !== undefined && t.note !== '' ? { description: t.note } : {}),
       taskId: t.id,
     });
@@ -144,6 +146,9 @@ export interface PlatformAssignment {
   title: string;
   dueAt: number | null;
   status: 'unknown' | 'not_submitted' | 'submitted' | 'graded';
+  url?:string;
+  needsReview?:boolean;
+  completedAt?:number;
 }
 
 /**
@@ -164,7 +169,7 @@ export interface PlatformLessonRule {
 export interface PlatformSnapshot {
   provider: string;
   syncedAt: number;
-  courses: readonly { id: string; title: string }[];
+  courses: readonly { id: string; title: string; url?:string }[];
   assignments: readonly PlatformAssignment[];
   /**
    * 排课。只有教务课表那个平台有，Gradescope / 互动教学平台给的是作业，
@@ -179,6 +184,8 @@ export interface PlatformCorrection {
   dueAt?: number | null;
   note?: string;
   done?: boolean;
+  needsReview?: boolean;
+  completedAt?: number;
   hidden?: boolean;
 }
 
@@ -218,6 +225,9 @@ export function platformDdls(
         ...(assignment.done ?? SUBMITTED.has(assignment.status) ? { done: true } : {}),
         ...(fix?.note !== undefined && fix.note !== '' ? { description: fix.note } : {}),
         provider: snapshot.provider,
+        url: original.url,
+        needsReview:original.needsReview,
+        completedAt:fix?.completedAt??original.completedAt,
         courseTitle: snapshot.courses.find((c) => c.id === assignment.courseId)?.title ?? '',
       });
     }

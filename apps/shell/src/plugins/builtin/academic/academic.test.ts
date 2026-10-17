@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { anchors, parseDeadline } from './html.ts';
-import { gradescopeCourses, gradescopeAssignments, blackboardCourses, blackboardAssignment, eamsSelection, eamsTimetable } from './parsers.ts';
+import { gradescopeCourses, gradescopeAssignments, blackboardCourses, blackboardAssignment, blackboardPending, eamsSelection, eamsTimetable } from './parsers.ts';
 import { defaultSettings, ENTRY, PLUGIN_IDS, parseWeeks, expandLessons, type AcademicCourse } from './model.ts';
-import { createConnector, connectorManifest } from './connectors.ts';
+import { createConnector, connectorManifest, SNAPSHOT, type AcademicSnapshot } from './connectors.ts';
 import { ACADEMIC_ID, projectionManifest, projectionPlugin } from './projection.ts';
 import { AcademicService } from '../../../core/academic-service.ts';
 import { AcademicTransport, academicSessionFor } from '../../../core/academic-transport.ts';
@@ -66,13 +66,13 @@ test('教务动态参数、断续周、周末及不连续节次；错误页明�
   assert.throws(()=>eamsTimetable(table('110'),'100'));
   assert.ok(eamsTimetable(table().replace('示例教师',',； '),'100').rules.every(r=>r.teacher===''));
 });
-test('人工周次与逐节时间展开；未确认第一周不生成上课提醒',()=>{
+test('只保留个人备注，识别字段修正不再影响课次；未确认第一周不生成提醒',()=>{
   const rules=eamsTimetable(table(),'100').rules,s=defaultSettings(),r=rules[0];
   assert.deepEqual(parseWeeks('1-8单周'),[1,3,5,7]);assert.deepEqual(parseWeeks('2-8双周,10'),[2,4,6,8,10]);
   assert.equal(expandLessons([r],s,{lessons:{},assignments:{}}).length,0);
   s.weekOne='2026-10-12';s.periods[0]={...s.periods[0],start:'08:00'};
   const events=expandLessons([r],s,{lessons:{[r.id]:{weeks:[2],note:'个人备注'}},assignments:{}});
-  assert.equal(events[0].startAt,Date.parse('2026-10-19T08:00:00+08:00'));assert.match(events[0].detail,/个人备注/);
+  assert.equal(events[0].startAt,Date.parse('2026-10-12T08:00:00+08:00'));assert.match(events[0].detail,/个人备注/);
   assert.throws(()=>expandLessons([r],{...s,weekOne:'2026-10-13'},{lessons:{},assignments:{}}));
 });
 
@@ -128,7 +128,7 @@ test('真实宿主：通知故障不否认数据同步成功；非法设置不�
 });
 test('平台会话由宿主ID绑定，凭证不能发往其他origin或端口',async()=>{
   const fallback=new MockTransport();let calls=0;
-  const transport=new AcademicTransport(fallback,{login:async()=>({completed:true}),clear:async()=>{},request:async req=>{calls++;return {status:200,body:'ok',headers:{},url:req.url,followedRedirects:false};}});
+  const transport=new AcademicTransport(fallback,{openExternal:async()=>{},login:async()=>({completed:true}),clear:async()=>{},request:async req=>{calls++;return {status:200,body:'ok',headers:{},url:req.url,followedRedirects:false};}});
   assert.equal(academicSessionFor('third.party'),undefined);assert.equal(academicSessionFor(PLUGIN_IDS.eams),'academic:eams');
   const req={url:ENTRY.eams,method:'GET' as const,headers:{},connectTimeoutMs:1000,readTimeoutMs:1000,session:'academic:eams'};
   await transport.request(req);assert.equal(calls,1);
@@ -234,8 +234,33 @@ test('单页失败不再中断串行扫描：后面的页面照样扫，快照�
   transport.queue(courseUrl('_1_1'),{status:0,throw:'SocketTimeoutException'});
   transport.queue(courseUrl('_2_1'),{status:200,body:'<html><body>这门课没有作业</body></html>'});
 
-  const result=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:Date.now()});
+  const result=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:Date.now(),settings:{scanMode:'deep'}});
   assert.ok(result.ok,'一页失败不该让整轮失败');
-  assert.equal(result.data.entities,1,'快照必须落库 —— 否则用户看到的就是「未得到有效数据」');
+  assert.ok(result.data.entities>=1,'快照必须落库 —— 否则用户看到的就是「未得到有效数据」');
   assert.match(result.data.errors.join(' '),/page-2: ENET /,'失败的那一页要留在报告里');
+});
+
+const bbCourse:AcademicCourse={id:'blackboard:_1_1',title:'合成课程',code:'',term:'',provider:'blackboard',url:new URL('/webapps/blackboard/execute/launcher?type=Course&id=_1_1',ENTRY.blackboard).href};
+const bbPortal='<a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1">合成课程</a><span class="moduleTitle">待完成作业</span>';
+const bbUrl=(i:number)=>new URL(`/webapps/assignment/uploadAssignment?content_id=_${i}_1&course_id=_1_1`,ENTRY.blackboard).href;
+test('BB 待完成模块：明确空、结构缺失、非空、拒绝外站',()=>{
+  assert.deepEqual(blackboardPending(bbPortal+'您目前没有未完成的作业',ENTRY.blackboard,[bbCourse]),{links:[],empty:true});
+  assert.equal(blackboardPending('无模块',ENTRY.blackboard,[bbCourse]),null);
+  assert.equal(blackboardPending(bbPortal+'未知结构',ENTRY.blackboard,[bbCourse]),null);
+  const html=bbPortal+`<a href="${bbUrl(1)}">作业</a><a href="https://evil.example/webapps/assignment/uploadAssignment?course_id=_1_1&content_id=_2_1">外站</a>`;
+  assert.equal(blackboardPending(html,ENTRY.blackboard,[bbCourse])?.links.length,1);
+});
+test('BB pending 只读门户与作业详情；消失不标完成；8条核对上限及尾页失败保留数据',async()=>{
+  const transport=new MockTransport(),host=new PluginHost({core:createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.blackboard).hostname],retryCount:0}}}),modules:new Map([[PLUGIN_IDS.blackboard,createConnector('blackboard')]])});
+  assert.ok((await host.install(connectorManifest('blackboard'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.blackboard,{status:200,body:bbPortal+`<a href="${bbUrl(1)}">作业1</a>`});
+  transport.queue(bbUrl(1),{status:200,body:'<h1>作业1</h1>作业信息 截止日期：2026年10月20日 下午11:59 未提交'});
+  const first=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:10});assert.ok(first.ok);assert.equal(first.data.requests,2);
+  const previous:AcademicSnapshot={provider:'blackboard',syncedAt:10,courses:[bbCourse],rules:[],periods:[],semester:'',assignments:Array.from({length:10},(_,i)=>({id:`blackboard:_1_1:assignment:_${i+1}_1`,courseId:bbCourse.id,title:`作业${i+1}`,url:bbUrl(i+1),provider:'blackboard',status:'not_submitted',dueAt:100,dueText:'',lateDueAt:null}))};
+  transport.queue(ENTRY.blackboard,{status:200,body:bbPortal+'您目前没有未完成的作业'});
+  for(let i=1;i<=7;i++)transport.queue(bbUrl(i),{status:200,body:`<h1>作业${i}</h1>作业信息 截止日期：2026年10月20日 下午11:59 未提交`});
+  transport.queue(bbUrl(8),{status:0,throw:'SocketTimeoutException'});
+  const second=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:20,settings:{previousSnapshot:JSON.stringify(previous)}});assert.ok(second.ok);assert.equal(second.data.requests,9);
+  const read=host.bus.read(PLUGIN_IDS.blackboard,SNAPSHOT,{owner:PLUGIN_IDS.blackboard});assert.ok(read.ok);
+  const saved=JSON.parse(String(read.data[0].data.json)) as AcademicSnapshot;assert.equal(saved.assignments.length,10);assert.ok(saved.assignments.every(a=>a.status!=='submitted'));assert.equal(saved.assignments[0].verifiedAt,20);assert.equal(saved.assignments[7].needsReview,true);assert.equal(saved.assignments[8].needsReview,true);
 });

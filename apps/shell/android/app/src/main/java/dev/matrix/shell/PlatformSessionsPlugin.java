@@ -26,6 +26,15 @@ public class PlatformSessionsPlugin extends Plugin {
         if (call == null) return;
         JSObject out = new JSObject(); out.put("completed", result.getResultCode() == Activity.RESULT_OK); call.resolve(out);
     }
+    @PluginMethod public void openExternal(PluginCall call) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(call.getString("url", ""));
+            if (!("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())) || uri.getHost() == null || uri.getUserInfo() != null) {
+                call.reject("仅支持 HTTP(S) 网页"); return;
+            }
+            getActivity().startActivity(new Intent(Intent.ACTION_VIEW, uri)); call.resolve();
+        } catch (Exception e) { call.reject("无法打开浏览器"); }
+    }
     @PluginMethod public void clear(PluginCall call) { perform(call, "clear"); }
     @PluginMethod public void request(PluginCall call) { perform(call, "request"); }
     private void perform(PluginCall call, String operation) {
@@ -34,7 +43,8 @@ public class PlatformSessionsPlugin extends Plugin {
                 Bundle input = new Bundle();
                 for (String key : new String[]{"provider", "url", "method", "body"}) input.putString(key, call.getString(key, ""));
                 input.putInt("timeout", call.getInt("timeout", 20000));
-                Bundle result = getContext().getContentResolver().call(PlatformSessionProvider.URI, operation, null, input);
+                android.net.Uri sessionUri = android.net.Uri.parse("content://" + getContext().getPackageName() + ".platformsessions");
+                Bundle result = getContext().getContentResolver().call(sessionUri, operation, null, input);
                 if (result == null) throw new IOException("会话进程未响应");
                 if (result.containsKey("error")) { call.reject(result.getString("error")); return; }
                 JSObject out = new JSObject();

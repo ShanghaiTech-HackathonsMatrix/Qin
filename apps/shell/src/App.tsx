@@ -21,15 +21,17 @@ import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
 import TimetableView from './views/TimetableView';
 import { buildWeekDays, lessonCount, teachingWeek } from './app/timetable';
-import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, sortByDue, type DdlItem } from './app/ddl-items';
+import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, type DdlItem } from './app/ddl-items';
 import AssignmentSheet, { type AssignmentDraft } from './components/AssignmentSheet';
+import PersonalEventSheet from './components/PersonalEventSheet';
+import LessonSheet from './components/LessonSheet';
+import {occurrences,type PersonalEvent} from './core/personal-schedule';
 import SwipeRow from './components/SwipeRow';
+import {TASK_CATEGORIES,taskCategory,compareTasks,type TaskCategory} from './app/task-status';
 import {
   HOME_CARD_META,
   HOME_CARD_ORDER,
-  HOME_WEIGHT_BUDGET,
   defaultHomeCards,
-  homeCardWeight,
   normalizeHomeCards,
   pickDropIndex,
   type HomeCardConfig,
@@ -69,6 +71,8 @@ type Boot =
   | { status: 'error'; error: unknown; report?: ResolutionReport };
 
 export default function App() {
+  const [personalEditor,setPersonalEditor]=useState<{event:PersonalEvent|null}|null>(null);
+  const [lessonId,setLessonId]=useState<string|null>(null);
   const [boot, setBoot] = useState<Boot>({ status: 'loading' });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -164,6 +168,7 @@ export default function App() {
     const consume = () => { void MatrixNotify.consumeTap?.().then(r => {
       // 平台相关的东西都在设置里，通知点开就落到那儿
       if (r.payload === 'academic') setTab('settings');
+      if (r.payload === 'personal') setTab('courses');
     }).catch(() => undefined); };
     consume();
     window.addEventListener('matrix-notification', consume);
@@ -180,6 +185,8 @@ export default function App() {
     if (platform === null) return;
     return platform.academic.subscribe(() => setAcademicTick((n) => n + 1));
   }, [platform]);
+  useEffect(()=>platform?.personal.subscribe(()=>setAcademicTick(n=>n+1)),[platform]);
+  useEffect(()=>{if(!platform)return;const refresh=()=>{if(document.visibilityState==='visible')void platform.personal.reconcile();};document.addEventListener('visibilitychange',refresh);return()=>document.removeEventListener('visibilitychange',refresh);},[platform]);
 
   // ---------------------------------------------------------------- 数据
 
@@ -384,7 +391,7 @@ export default function App() {
   const homeCards = settings.homeCards;
   const homeMode = homeCards.some((c) => c.size === 'half') ? 'grid' : 'stack';
   /** 出厂是 4 张整宽 = 8 格。超了就不能再硬裁，得允许滚动。 */
-  const homeScrolls = homeCardWeight(homeCards) > HOME_WEIGHT_BUDGET;
+  const homeScrolls = true;
   /*
     这里原来会把「最近的 DDL」和「冒险图鉴」在真实模式下过滤掉，
     理由是「没有数据来源」。现在两张卡都接上了真实数据（核心任务 + 课程表），
@@ -578,6 +585,8 @@ export default function App() {
     if (!platform) return;
     await platform.store.clearAll();
     await platform.academic.clearData();
+    await platform.personal.clear();
+    await platform.externalPlugins.clear();
     await reload();
     flash('数据已清空');
   }, [platform, reload, flash]);
@@ -694,7 +703,8 @@ export default function App() {
    * 平台作业说「已提交」，自己加的说「已完成」，两者不是一回事。
    */
   const ddlStateLabel = (ddl: DdlItem, overdue: boolean): string => {
-    if (ddl.done === true) return ddl.provider === undefined ? '已完成' : '已提交';
+    if (ddl.done === true) return ddl.provider === undefined ? '已完成' : '已提交 / 已完成';
+    if (ddl.needsReview) return '状态待确认';
     return overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label;
   };
   const formatDue = (at: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(at);
@@ -855,6 +865,8 @@ const TAB_ICONS = {
       courseTitle: snapshot?.courses.find((c) => c.id === merged.courseId)?.title ?? '',
       source: PROVIDER_LABEL[merged.provider] ?? merged.provider,
       status: merged.status,
+      url:merged.url,
+      courseUrl:merged.provider==='blackboard'?snapshot?.courses.find(c=>c.id===merged.courseId)?.url:undefined,
     };
   }, [assignmentId, rawAssignment, platform, academicTick]);
 
@@ -917,9 +929,10 @@ const TAB_ICONS = {
    * 任务日志的展示顺序：没做完的按截止时间排前面，交过的沉到最后。
    * `sort` 是稳定排序，所以两组内部仍然按截止时间。
    */
+  const [taskFilters,setTaskFilters]=useState<TaskCategory[]>(['open','overdue']);
   const logDdls = useMemo(
-    () => [...sortByDue(ddlItems)].sort((a, b) => Number(a.done === true) - Number(b.done === true)),
-    [ddlItems],
+    () => ddlItems.filter(d=>taskFilters.includes(taskCategory(d,nowMs))).sort((a,b)=>compareTasks(a,b,nowMs)),
+    [ddlItems,taskFilters,nowMs],
   );
 
   /**
@@ -936,11 +949,16 @@ const TAB_ICONS = {
    * 它既进不了 DDL 主列表（课程不算要交的事），又不满足「没有截止时间」，
    * 于是两段都不显示 —— 界面上凭空少一条。这类静默丢失比排错序难查得多。
    */
-  const undatedTasks = useMemo(() => {
+  const allUndatedTasks = useMemo(() => {
     const listed = new Set(ddlItems.map((d) => d.id));
     const source = DEMO_DATA !== null ? demoExtraTasks : visibleTasks;
     return source.filter((t) => t.status !== 'dismissed' && !listed.has(t.id));
   }, [ddlItems, visibleTasks, demoExtraTasks]);
+  const localState=(t:Task)=>({dueAt:t.dueAt,done:t.status==='done',completedAt:t.updatedAt});
+  const undatedTasks=allUndatedTasks.filter(t=>taskFilters.includes(taskCategory(localState(t),nowMs))).sort((a,b)=>compareTasks(localState(a),localState(b),nowMs));
+  const allUndatedPlatform=(platform?.academic.snapshots??[]).flatMap(s=>s.assignments.map(a=>({...a,...platform?.academic.corrections.assignments[a.id]})).filter(a=>a.dueAt===null && !a.hidden && (!platform?.academic.settings.selectedCourses[s.provider] || platform.academic.settings.selectedCourses[s.provider]!.includes(a.courseId))).map(a=>({...a,done:a.done??['submitted','graded'].includes(a.status)})));
+  const undatedPlatform=allUndatedPlatform.filter(a=>taskFilters.includes(taskCategory(a,nowMs)));
+  const categoryCounts=Object.fromEntries(TASK_CATEGORIES.map(c=>[c.id,[...ddlItems,...allUndatedTasks.map(localState),...allUndatedPlatform].filter(t=>taskCategory(t,nowMs)===c.id).length]));
   /** 首页与「日程」页共用同一份条目，避免两处各写一遍映射 */
   const scheduleEntries = useMemo<ScheduleEntry[]>(() => {
     const fromClasses: ScheduleEntry[] = DEMO_MODE && !hasAcademic
@@ -983,8 +1001,9 @@ const TAB_ICONS = {
         : ddl.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
       ...(ddl.selfMade === true ? { selfMade: true } : {}),
     }));
-    return [...fromClasses, ...fromDated];
-  }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic]);
+    const personal=platform?.personal.events.flatMap(e=>occurrences(e,nowMs-86400000,nowMs+14*86400000))??[];
+    return [...fromClasses, ...fromDated,...personal];
+  }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic,platform,academicTick]);
   /**
    * 日程排「今天 0 点 → 未来两周」。
    *
@@ -1199,7 +1218,7 @@ const TAB_ICONS = {
   };
 
   return (
-    <div className="app" style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
+    <div className="app" data-large-font={settings.fontScale>1.15} style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
       <div className="topbar">
         <div className="topbar__identity">
           <span className="topbar__sigil" aria-hidden="true">✳</span>
@@ -1349,13 +1368,17 @@ const TAB_ICONS = {
             <div className="quest-section__head">
               <h2>任务日志</h2>
               <span className="quest-section__ornament">
-                {ddlItems.length} 条 · {DEMO_MODE ? '来自 2 个平台' : '本机记录'}
+                {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length} 条 · 平台与本机
               </span>
             </div>
 
-            {ddlItems.length === 0 ? (
+            <div className="task-filters" aria-label="按任务状态筛选">
+              <button className="btn btn--sm" aria-pressed={taskFilters.length===4} onClick={()=>setTaskFilters(TASK_CATEGORIES.map(c=>c.id))}>全部 {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length}</button>
+              {TASK_CATEGORIES.map(c=><button key={c.id} className="btn btn--sm" aria-pressed={taskFilters.includes(c.id)} onClick={()=>setTaskFilters(prev=>prev.includes(c.id)?prev.filter(v=>v!==c.id):[...prev,c.id])}>{c.label} {categoryCounts[c.id]}</button>)}
+            </div>
+            {logDdls.length+undatedTasks.length+undatedPlatform.length === 0 ? (
               <div className="home-empty">
-                还没有 DDL。用右下角的「＋」添加，或等平台同步接入后自动汇总。
+                当前筛选下没有任务。可切换顶部分类，或新建任务。
               </div>
             ) : (
               <div className="log-list">
@@ -1406,7 +1429,8 @@ const TAB_ICONS = {
               </div>
             )}
 
-            {/* 自建任务：没有截止时间的那批，单独一段，不跟有期限的混在一起 */}
+            {undatedPlatform.length>0 && <section><h3>平台未提供截止时间</h3>{undatedPlatform.map(a=><button className="log-row" key={a.id} onClick={()=>setAssignmentId(a.id)}><span>{a.title}</span><small>{a.done?'已提交 / 已完成':a.needsReview?'待确认':'无期限'}</small></button>)}</section>}
+            {/* 无截止时间的本机任务也参与顶部状态筛选。 */}
             {undatedTasks.length > 0 && (
               <>
                 <div className="quest-section__head quest-section__head--spaced">
@@ -1432,7 +1456,7 @@ const TAB_ICONS = {
                     >
                       <span className="log-row__due">
                         <b>{t.dueAt === null ? '—' : formatDue(t.dueAt)}</b>
-                        <em>{t.dueAt === null ? '无期限' : EVENT_KIND_LABEL[t.kind]}</em>
+                        <em>{t.status==='done'?'已完成':t.dueAt === null ? '无期限' : EVENT_KIND_LABEL[t.kind]}</em>
                       </span>
                       <span className="log-row__body">
                         <strong>
@@ -1467,10 +1491,11 @@ const TAB_ICONS = {
               <div className="home-empty">课表还没就绪。</div>
             ) : timetable.week === 0 ? (
               <div className="home-empty">
-                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 课表基准」填一下第 1 教学周的周一。
+                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 通用设置 → 课表基准」填一下第 1 教学周的周一。
               </div>
             ) : (
               <TimetableView
+                onOpenLesson={setLessonId}
                 days={timetable.days}
                 week={timetable.week}
                 totalWeeks={timetable.totalWeeks}
@@ -1479,10 +1504,11 @@ const TAB_ICONS = {
                 emptyText={
                   timetable.synced
                     ? '这一周没有排课，翻到别的周看看。'
-                    : '还没同步到课表。去「设置 → 平台连接」登录教务课表并同步。'
+                    : '还没同步到课表。去「设置 → 插件管理」登录教务课表并同步。'
                 }
               />
             )}
+            {p.academic.snapshots.some(s=>s.rules.length>0)&&<details className="card stack"><summary>全部排课与课程备注</summary>{p.academic.snapshots.flatMap(s=>s.rules).map(r=><button className="btn" key={r.id} onClick={()=>setLessonId(r.id)}>{r.title} · 周{'一二三四五六日'[r.weekday-1]} · 第 {r.first}–{r.last} 节</button>)}</details>}
           </>
         )}
 
@@ -1496,6 +1522,7 @@ const TAB_ICONS = {
                 ? '演示数据里这段时间还没有安排。'
                 : '导入 .ics 课表，或在「任务」页添加带时间的任务，它们会出现在这里。'}
               onOpenEntry={(entry) => {
+                if(entry.kind==='custom'){const event=p.personal.events.find(e=>entry.id.startsWith(`personal:${e.id}:`));if(event)setPersonalEditor({event});return;}
                 // 课程条目不是任务，点了不该有反应；其余按 id 找回对应条目
                 const item = ddlItems.find((d) => d.id === entry.id);
                 if (item !== undefined) openDdl(item);
@@ -1541,6 +1568,9 @@ const TAB_ICONS = {
             onResetData={() => void resetAllData()}
           />
         )}
+        {tab==='courses'&&<button className="btn btn--primary" onClick={()=>setPersonalEditor({event:null})}>＋ 自定义日程</button>}
+        {personalEditor&&<PersonalEventSheet event={personalEditor.event} service={p.personal} close={()=>setPersonalEditor(null)}/>}
+        {lessonId&&<LessonSheet id={lessonId} service={p.academic} close={()=>setLessonId(null)}/>}
       </div>
 
       <div className="tabbar">
@@ -1652,7 +1682,7 @@ const TAB_ICONS = {
                 );
               })}
               <p className="quick__foot">
-                首页一共 {HOME_WEIGHT_BUDGET} 格，整宽算 2 格、半宽算 1 格。
+                首页按内容自然滚动；整宽占两列，半宽占一列。
                 超出去之后首页会允许上下滚动，不再硬挤。
               </p>
               <button className="btn btn--sm" onClick={() => commitHomeCards(defaultHomeCards(DEMO_MODE))}>

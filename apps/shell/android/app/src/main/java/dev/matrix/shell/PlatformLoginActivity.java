@@ -44,7 +44,10 @@ public class PlatformLoginActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush();
-                if (!failed) status.setText("当前站点：" + Uri.parse(url).getHost() + "\n登录完成后，点击“完成登录并同步”。");
+                if (!failed) status.setText("当前站点：" + Uri.parse(url).getHost() +
+                    ("eams".equals(provider)
+                        ? "\n教务网页可能只显示学期选择；无需等待课表显示，点击“完成登录并同步”，以同步结果为准。"
+                        : "\n登录完成后，点击“完成登录并同步”。"));
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError e) {
                 if (req.isForMainFrame()) { failed = true; status.setText("页面加载失败：" + e.getErrorCode()); }

@@ -9,7 +9,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test -w @matrix/plugin-api && npm run test -w @matrix/kernel && npm run test -w matrix-shell",
+    "test": "npm run test -w @matrix/plugin-api && npm run test -w @matrix/kernel && npm run test -w matrix-shell && npm run test:extensions -w matrix-shell",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check": "npm run test && npm run typecheck",
     "build": "npm run build -w matrix-shell"

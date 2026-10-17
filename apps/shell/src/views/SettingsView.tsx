@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform/bootstrap';
 import type { AcademicService } from '../core/academic-service.ts';
+import ExternalPluginsView from './ExternalPluginsView';
+import {openExternal} from '../platform/open-external';
 import {
   DENSITY_LABEL, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, LAYOUT_LABEL,
   type AppSettings, type Density, type Layout,
@@ -14,7 +16,7 @@ interface Props {
   onResetData: () => void;
 }
 
-const APP_VERSION = '0.1.0-p0';
+const APP_VERSION = '0.2.0-dev';
 
 /**
  * 三个真实存在的学习平台。
@@ -103,24 +105,28 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
             <div className="conn__actions">
               <button
                 className="btn btn--sm btn--primary"
-                disabled={busy || !academic.available}
+                disabled={busy || !academic.available || academic.enabled[item.id]===false}
                 onClick={() => void run(() => academic.login(item.id as ProviderId))}
               >
                 登录
               </button>
               <button
                 className="btn btn--sm"
-                disabled={busy || !academic.available}
+                disabled={busy || !academic.available || academic.enabled[item.id]===false}
                 onClick={() => void run(() => academic.sync(item.id as ProviderId), '同步完成')}
               >
                 {busy ? '处理中…' : '同步'}
               </button>
+              <button className="btn btn--sm" disabled={busy} onClick={()=>void run(()=>academic.setEnabled(item.id,academic.enabled[item.id]===false))}>{academic.enabled[item.id]===false?'启用':'停用'}</button>
+              {item.id==='blackboard'&&<button className="btn btn--sm" disabled={busy||!academic.available||academic.enabled.blackboard===false} onClick={()=>void run(()=>academic.sync('blackboard',true),'目录扫描完成')}>扫描课程目录</button>}
             </div>
+            {item.id==='blackboard'&&snapshot&&<details><summary>打开 BB 课程网页</summary>{snapshot.courses.map(c=><p key={c.id}><button className="btn btn--sm" onClick={()=>void run(()=>openExternal(c.url))}>{c.title}</button></p>)}</details>}
           </div>
         );
       })}
 
       {note !== null && <p className="conn__note" data-tone={note.tone}>{note.text}</p>}
+      {busy&&<button className="btn" onClick={()=>{academic.cancel();setNote({tone:'info',text:'正在停止，将等待当前页面请求结束；已读内容保留。'});}}>停止同步</button>}
 
       <div className="conn__actions">
         <button
@@ -190,6 +196,8 @@ function TimetableSetup({ academic }: { academic: AcademicService }) {
 }
 
 export default function SettingsView({ platform, settings, onChange, onOpenDebug, onResetData }: Props) {
+  const [page,setPage]=useState<'root'|'account'|'general'|'plugins'|'runtime'>('root');
+  const names={account:'用户与账号',general:'通用设置',plugins:'插件管理',runtime:'运行与关于'};
   const taps = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
   const [diag, setDiag] = useState<Record<string, string> | null>(null);
 
@@ -207,12 +215,20 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
 
   return (
     <>
-      <div className="section-title">平台连接</div>
+      {page==='root'?<div className="settings-menu">{(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}><strong>{names[key]}</strong><span>›</span></button>)}</div>:<button className="btn" onClick={()=>setPage('root')}>‹ 设置 · {names[page]}</button>}
+      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 使用邮箱登录；BB 与教务使用学校统一身份认证。登录凭证保留在手机本机。</p><button className="btn" onClick={()=>setPage('plugins')}>管理平台账号与登录</button></div>}
+      {page==='plugins'&&<>
+      <div className="section-title">内置插件</div>
       <div className="conn-grid">
         <PlatformConnections academic={platform.academic} simulated={platform.academicSimulated} />
-        <TimetableSetup academic={platform.academic} />
       </div>
-
+      <details className="card"><summary>系统内置组件（随应用更新）</summary><p>ICS 导入 · Timeline 时间线 · 课表与作业投影。这些组件由应用管理。</p></details>
+      <ExternalPluginsView platform={platform}/>
+      </>}
+      {page==='general'&&<>
+      <TimetableSetup academic={platform.academic} />
+      <PeriodSettings academic={platform.academic}/>
+      <ReminderSettings academic={platform.academic}/>
       <div className="section-title">外观</div>
 
       <div className="card stack">
@@ -265,7 +281,8 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
           </div>
         </div>
       </div>
-
+      </>}
+      {page==='runtime'&&<>
       <div className="section-title">运行状态</div>
 
       <div className="card stack">
@@ -336,10 +353,29 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
           <span className="mono truncate" style={{ maxWidth: '60%' }}>{platform.report.fingerprint}</span>
         </div>
         <div className="faint">
-          这是 P0 验证版：核心尚未下沉到原生层，网络未收口，插件系统未接入。
-          它的用途是验证运行时、存储策略与数据持久化。
+          内置平台插件使用原有执行方式，外部插件在独立沙箱内运行。数据保存在本机。
         </div>
       </div>
+      </>}
     </>
   );
+}
+
+function PeriodSettings({academic:s}:{academic:AcademicService}){
+  const [periods,setPeriods]=useState(()=>s.settings.periods.map(p=>({...p}))),[note,setNote]=useState('');
+  return <details className="card stack"><summary>上课时间与课间</summary><p className="faint">逐节调整开始与结束时间，节间空隙即课间。同步不会覆盖这些设置。</p>
+    {periods.map((p,i)=><div className="stack" key={i}><strong>第 {i+1} 节 · {p.group}</strong><label>开始<input className="field" type="time" aria-label={`第${i+1}节开始`} value={p.start} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,start:e.target.value}:p))}/></label><label>结束<input className="field" type="time" aria-label={`第${i+1}节结束`} value={p.end} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,end:e.target.value}:p))}/></label></div>)}
+    <button className="btn" disabled={s.busy} onClick={()=>void(async()=>{try{await s.saveSettings({...s.settings,periods});setNote('上课时间已保存');}catch(e){setNote(String(e));}})()}>保存上课时间</button>{note&&<p role="status">{note}</p>}
+  </details>;
+}
+
+function ReminderSettings({academic:s}:{academic:AcademicService}){
+  const [d,setD]=useState(s.settings),[note,setNote]=useState('');
+  return <div className="card stack"><h3>提醒与日期</h3>
+    <label><input type="checkbox" checked={d.reminders} onChange={e=>setD({...d,reminders:e.target.checked})}/> 开启课表和作业提醒</label>
+    <label>课前提前（分钟）<input className="field" type="number" min="0" max="43200" value={d.lessonLead} onChange={e=>setD({...d,lessonLead:Number(e.target.value)})}/></label>
+    <label>DDL 提前（分钟）<input className="field" type="number" min="0" max="43200" value={d.dueLead} onChange={e=>setD({...d,dueLead:Number(e.target.value)})}/></label>
+    <label>Gradescope 无时区日期的时区<input className="field" placeholder="例如 Asia/Shanghai" value={d.gradescopeTimezone} onChange={e=>setD({...d,gradescopeTimezone:e.target.value})}/></label>
+    <p className="faint">{s.reminderStatus}</p><button className="btn" disabled={s.busy} onClick={()=>void(async()=>{try{if(d.reminders)await s.requestReminderPermission();await s.saveSettings({...s.settings,reminders:d.reminders,lessonLead:d.lessonLead,dueLead:d.dueLead,gradescopeTimezone:d.gradescopeTimezone});setNote('已保存');}catch(e){setNote(String(e));}})()}>保存提醒设置</button>{note&&<p role="status">{note}</p>}
+  </div>;
 }

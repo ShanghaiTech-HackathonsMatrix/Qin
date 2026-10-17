@@ -103,7 +103,9 @@ function gradescopeCourse(course: 11 | 12, now: number): string {
 
 const BLACKBOARD_ENTRY = `
 <a href="/webapps/blackboard/execute/launcher?type=Course&amp;id=_123_1&amp;url=">操作系统</a>
-<a href="/webapps/blackboard/execute/launcher?type=Course&amp;id=_123_2&amp;url=">计算机网络</a>`;
+<a href="/webapps/blackboard/execute/launcher?type=Course&amp;id=_123_2&amp;url=">计算机网络</a>
+<div class="portlet"><span class="moduleTitle">待完成作业</span>
+<a href="/webapps/assignment/uploadAssignment?content_id=_9001_1&amp;course_id=_123_1">进程调度实验</a></div>`;
 
 /** 课程目录页：连接器只认带 course_id 的 uploadAssignment 链接。 */
 const BLACKBOARD_COURSE = `

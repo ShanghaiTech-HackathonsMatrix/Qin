@@ -11,6 +11,7 @@ interface Props {
   onWeekChange: (offset: number) => void;
   /** 一条课时都没有时的说明。没同步和同步了但这周没课，理由不一样 */
   emptyText: string;
+  onOpenLesson?:(id:string)=>void;
 }
 
 /**
@@ -20,7 +21,7 @@ interface Props {
  * 每格不到 50px，课名只能挤成一两个字。这一页回答的是「这周哪天有课、
  * 几点、在哪」，所以按天竖排成卡片，和其它页的卡片是同一套观感。
  */
-export default function TimetableView({ days, week, totalWeeks, weekOffset, onWeekChange, emptyText }: Props) {
+export default function TimetableView({ days, week, totalWeeks, weekOffset, onWeekChange, emptyText,onOpenLesson }: Props) {
   const total = useMemo(() => days.reduce((n, d) => n + d.lessons.length, 0), [days]);
   const canPrev = week > 1;
   const canNext = week < totalWeeks;
@@ -74,7 +75,7 @@ export default function TimetableView({ days, week, totalWeeks, weekOffset, onWe
             {day.lessons.length > 0 && (
               <div className="timetable-day__rows">
                 {day.lessons.map((lesson) => (
-                  <div className="timetable-lesson" key={lesson.id}>
+                  <div className="timetable-lesson" key={lesson.id} role="button" tabIndex={0} onClick={()=>onOpenLesson?.(lesson.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenLesson?.(lesson.id);}}}>
                     <span className="timetable-lesson__time">
                       <b>{lesson.start}</b>
                       <em>{lesson.end}</em>

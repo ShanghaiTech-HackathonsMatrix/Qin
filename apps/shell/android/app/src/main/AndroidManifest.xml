@@ -26,7 +26,7 @@
 
         <activity android:name=".PlatformLoginActivity" android:process=":platformsessions"
             android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
-        <provider android:name=".PlatformSessionProvider" android:authorities="dev.matrix.shell.platformsessions"
+        <provider android:name=".PlatformSessionProvider" android:authorities="${applicationId}.platformsessions"
             android:process=":platformsessions" android:exported="false" />
 
         <provider

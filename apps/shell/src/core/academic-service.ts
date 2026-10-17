@@ -13,6 +13,8 @@ export class AcademicService {
   statuses: Partial<Record<Provider,string>> = {};
   reminderStatus = '未开启';
   busy = false;
+  enabled:Partial<Record<Provider,boolean>>={};
+  cancel() {for(const p of PROVIDERS)this.host.cancelSync(PLUGIN_IDS[p]);}
   private tail: Promise<unknown> = Promise.resolve();
   private listeners = new Set<()=>void>();
   private host: PluginHost;
@@ -23,6 +25,7 @@ export class AcademicService {
   private clearSessions: ()=>Promise<void>;
   constructor(deps: {host:PluginHost;kv:SecureStore;notify:NotifyPort;available:boolean;login:(p:Provider)=>Promise<{completed:boolean}>;clear:()=>Promise<void>}) {
     this.host=deps.host;this.kv=deps.kv;this.notify=deps.notify;this.available=deps.available;this.loginPage=deps.login;this.clearSessions=deps.clear;
+    this.host.onProgress=(id,detail)=>{const p=PROVIDERS.find(p=>PLUGIN_IDS[p]===id);if(p){this.statuses[p]=detail;this.changed();}};
   }
   subscribe(fn:()=>void) { this.listeners.add(fn);return ()=>{this.listeners.delete(fn);}; }
   private changed() { for(const fn of this.listeners) fn(); }
@@ -34,9 +37,11 @@ export class AcademicService {
     const raw=await this.kv.get('academic.config.v1');
     if(raw) {
       const saved=JSON.parse(raw);this.settings={...defaultSettings(),...saved.settings};this.corrections=saved.corrections??this.corrections;
+      this.enabled=saved.enabled??{};
       validateSettings(this.settings);
     }
     this.readSnapshots();
+    for(const p of PROVIDERS)if(this.enabled[p]===false)await this.host.registry.deactivate(PLUGIN_IDS[p]);
     await this.rebuild();
   }
   private readSnapshots() {
@@ -58,6 +63,7 @@ export class AcademicService {
     }
   }
   async login(provider:Provider) {
+    if(this.enabled[provider]===false)throw new Error('请先启用此插件');
     if(!this.available) throw new Error('此构建仅 Android 支持平台网页登录');
     return this.serial(async()=>{
       const result=await this.loginPage(provider);
@@ -65,14 +71,23 @@ export class AcademicService {
       await this.runSync(provider);
     });
   }
-  sync(provider:Provider) { return this.serial(()=>this.runSync(provider)); }
-  private async runSync(provider:Provider) {
+  sync(provider:Provider,deep=false) { return this.serial(()=>this.runSync(provider,deep)); }
+  setEnabled(provider:Provider,enabled:boolean) {return this.serial(async()=>{
+    const result=enabled?await this.host.registry.activate(PLUGIN_IDS[provider]):await this.host.registry.deactivate(PLUGIN_IDS[provider]);
+    if(!result.ok)throw new Error(result.message);
+    const previous=this.enabled[provider];this.enabled[provider]=enabled;
+    try{await this.persist();}catch(e){this.enabled[provider]=previous;if(previous===false)await this.host.registry.deactivate(PLUGIN_IDS[provider]);else await this.host.registry.activate(PLUGIN_IDS[provider]);throw e;}
+    await this.reconcileReminders();
+  });}
+  private async runSync(provider:Provider,deep=false) {
+    if(this.enabled[provider]===false)throw new Error('请先启用此插件');
     if(!this.available) throw new Error('请在 Android 端登录并同步');
     this.statuses[provider]='正在读取…';this.changed();
     try {
       const s=this.settings;
       const now=Date.now();
       const result=await this.host.sync(PLUGIN_IDS[provider],{trigger:'manual',now,settings:{semesterId:s.semesterId,gradescopeTimezone:s.gradescopeTimezone,
+        previousSnapshot:JSON.stringify(this.snapshots.find(x=>x.provider===provider)??null),scanMode:deep?'deep':'pending',
         ...(s.selectedCourses[provider]?{selectedCourses:JSON.stringify(s.selectedCourses[provider])}:{})}});
       if(!result.ok) throw new Error(result.message);
       /*
@@ -110,6 +125,8 @@ export class AcademicService {
       const gap=soft.length?`（${soft.length} 个页面没读到）`:'';
       this.statuses[provider]=`同步成功：${snap.courses.length} 门课程，${provider==='eams'?`${snap.rules.length} 条排课`:`${snap.assignments.length} 项作业`}${gap}`;
     } catch(e) {
+      const previous=this.snapshots;this.readSnapshots();this.migrateLessonCorrections(previous);
+      try{await this.rebuild();await this.persist();}catch{/* 原始快照仍在总线中，下次启动可恢复；保留本轮的明确错误。 */}
       this.statuses[provider]=e instanceof Error?e.message:String(e);throw e;
     }
   }
@@ -119,8 +136,8 @@ export class AcademicService {
     await this.applyConfig(next,this.corrections);
     if(edited) await this.kv.set('academic.periods-edited','1');
   }); }
-  editLesson(id:string,patch:LessonOverride) { return this.saveCorrection('lessons',id,patch); }
-  editAssignment(id:string,patch:AssignmentOverride) { return this.saveCorrection('assignments',id,patch); }
+  editLesson(id:string,patch:LessonOverride) { return this.saveCorrection('lessons',id,{note:patch.note??''}); }
+  editAssignment(id:string,patch:AssignmentOverride) { return this.saveCorrection('assignments',id,{...patch,...(patch.done===undefined?{}:{completedAt:patch.done?Date.now():0})}); }
   resetLesson(id:string) { return this.serial(async()=>{const next=structuredClone(this.corrections);delete next.lessons[id];await this.applyConfig(this.settings,next);}); }
   resetAssignment(id:string) { return this.serial(async()=>{const next=structuredClone(this.corrections);delete next.assignments[id];await this.applyConfig(this.settings,next);}); }
   private saveCorrection(kind:'lessons'|'assignments',id:string,patch:LessonOverride|AssignmentOverride) {return this.serial(async()=>{
@@ -138,7 +155,7 @@ export class AcademicService {
       throw e;
     }
   }
-  private persist() {return this.kv.set('academic.config.v1',JSON.stringify({settings:this.settings,corrections:this.corrections}));}
+  private persist() {return this.kv.set('academic.config.v1',JSON.stringify({settings:this.settings,corrections:this.corrections,enabled:this.enabled}));}
   private async rebuild() {
     // 先计算/校验全量结果，再替换派生实体；原始快照及人工修正始终独立保留。
     projectAcademic(this.snapshots,this.settings,this.corrections);
@@ -172,11 +189,11 @@ export class AcademicService {
     if(!this.settings.reminders || await this.notify.checkPermission()!=='granted') {
       await this.notify.cancel(pending.filter(id=>id.startsWith('academic#')));this.reminderStatus=this.settings.reminders?'通知权限未开启':'未开启';return;
     }
-    const entities=projectAcademic(this.snapshots,this.settings,this.corrections).filter(e=>e.type==='academic_event' && !e.data.done);
+    const entities=projectAcademic(this.snapshots.filter(s=>this.enabled[s.provider]!==false),this.settings,this.corrections).filter(e=>e.type==='academic_event' && !e.data.done);
     const now=Date.now();
     const items=entities.map(e=>({id:`academic#${e.id}`,at:Number(e.data.startAt)-(e.data.type==='session'?this.settings.lessonLead:this.settings.dueLead)*60000,
       title:`${e.data.type==='session'?'即将上课':'作业截止提醒'} · ${e.data.title}`,body:String(e.data.detail??''),payload:'academic'}))
-      .filter(e=>e.at>now).sort((a,b)=>a.at-b.at).slice(0,Math.min(400,this.notify.capabilities().maxPending));
+      .filter(e=>e.at>now).sort((a,b)=>a.at-b.at).slice(0,Math.min(400,Math.max(0,this.notify.capabilities().maxPending-pending.filter(id=>!id.startsWith('academic#')).length)));
     try {
       const wanted=new Set(items.map(e=>e.id));await this.notify.cancel(pending.filter(id=>id.startsWith('academic#')&&!wanted.has(id)));
       await this.notify.schedule(items);

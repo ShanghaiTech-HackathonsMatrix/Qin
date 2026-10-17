@@ -69,6 +69,21 @@ export function blackboardAssignment(html: string, url: string, course: Academic
     url, provider:'blackboard', dueAt:parseDeadline(due,course.term,'Asia/Shanghai'), lateDueAt:null, dueText:due,
     status:/未提交|尚未提交|not submitted/i.test(words) ? 'not_submitted' : /重新提交|已提交|提交(?:历史)?记录|已上交|submission history/i.test(words) ? 'submitted' : 'unknown' };
 }
+/** 只读取门户的「待完成作业」模块；缺失或结构未知不能当作空列表。 */
+export function blackboardPending(html:string, base:string, courses:AcademicCourse[]): {links:{url:string;title:string;course:AcademicCourse}[];empty:boolean}|null {
+  const title=/<span\b[^>]*class=["'][^"']*moduleTitle[^"']*["'][^>]*>\s*待完成作业\s*<\/span>/i.exec(html);
+  if(!title) return null;
+  const rest=html.slice(title.index+title[0].length);
+  const block=rest.split(/<div\b[^>]*class=["'][^"']*portlet\b/i)[0];
+  const empty=/您目前没有未完成的作业/.test(text(block));
+  const links=anchors(block,base).flatMap(a=>{
+    const u=new URL(a.url);
+    if(u.origin!==new URL(base).origin || !/^\/webapps\/assignment\/uploadAssignment(?:\.jsp)?$/i.test(u.pathname))return [];
+    const course=courses.find(c=>c.id===`blackboard:${u.searchParams.get('course_id')}`);
+    return course && (u.searchParams.has('content_id')||u.searchParams.has('assign_group_id'))?[{url:a.url,title:a.title,course}]:[];
+  });
+  return empty&&!links.length?{links:[],empty:true}:links.length?{links,empty:false}:null;
+}
 export interface EamsSelection { student: string; semester: string; body: string }
 export function eamsSelection(html: string, semesterOverride: string): EamsSelection {
   const student = html.match(/addInput\(\s*form\s*,\s*["']ids["']\s*,\s*["'](\d+)["']\s*\)/)?.[1] ??

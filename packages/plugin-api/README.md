@@ -3,6 +3,7 @@
 > 对应 `CURRENT_API_VERSION = '1.0.0'`。宿主支持窗口 **N-2**（当前 = 1.x，最老 = 1.x）。
 >
 > 这份文档描述的是**已经落地的实现**（`packages/plugin-api/src/v1/`），
+> 外部文件安装的当前支持子集见 [外部插件指南](../../docs/plugins/README.md)。
 > 不是设计草案。凡是**提案**或**尚未实现**的内容，都单独标了 ⚠️。
 
 ---
@@ -111,7 +112,7 @@ plan(input)  →  校验每个 URL  →  发请求  →  parsers[name](响应)  
 
 ### 1.1 最小可复制骨架
 
-一个插件就是一个目录 + **一个导出对象**。没有构建步骤，没有打包格式（`.mtp` 包还没做）。
+内置插件是一个目录 + **一个导出对象**，由应用构建并注册。外部插件打包为 `.mtp`，入口为 `globalThis.plugin`；格式与命令见 [插件指南](../../docs/plugins/README.md)。
 
 ```
 my-plugin/
@@ -203,15 +204,10 @@ await host.sync(PLUGIN_ID, { trigger: 'manual', now: Date.now() });
 
 四个必须知道的事实：
 
-- **`modules` 是 `ReadonlyMap<string, PluginExports>`**。键与 manifest 的 `id` 对不上 →
-  `ENOTFOUND`。这是「插件怎么进来」的**全部**知识。
-- **现在没有「从文件安装」的路径**。插件必须编译进应用。第三方插件要的
-  `.mtp` 包、验签、沙箱**都还没做**（见 §12），所以 `allowReservedPrefix` 之外
-  没有任何入口能让一个外部文件变成插件。
-- **`kind` 必须与运行时自报的一致**。进程内运行时没有独立知识，以 manifest 为准；
-  将来沙箱运行时才有资格独立报告，那时不一致会 `EMANIFEST`。
-- **`sync()` 是宿主推着走**。插件没有定时器、没有事件订阅、没有任何主动入口。
-  没有调度器 —— `connectors[].syncIntervalMin` 现在**不触发任何东西**（见 §3.4）。
+- `modules` 是内置插件的 `ReadonlyMap<string, PluginExports>`；匹配失败时可进入外部 QuickJS 运行时。内置模块继续进程内执行。
+- 设置页支持导入 `.mtp`（ZIP 根目录 manifest.json + bundle.js），确认权限后安装。外部入口使用 `globalThis.plugin`；签名尚未验证。首版支持范围见 [外部插件指南](../../docs/plugins/README.md)。
+- `kind` 参与契约核对，但不是来源证明或密码学认证；外部入口另行拒绝内置身份及保留 ID。
+- `sync()` 由宿主驱动；外部插件没有定时器、订阅或后台主动入口。`syncIntervalMin` 不会自动产生调度。
 
 ---
 
@@ -226,15 +222,15 @@ type PluginKind = 'declarative' | 'logic' | 'connector' | 'ui' | 'first-party';
 | `declarative` | ❌ 纯数据 | 只贡献视图/命令，无逻辑 | **不需要** `entry` |
 | `logic` | ✅ | 纯计算：解析、格式化、规则 | 需要 |
 | `connector` | ✅ | 对接外部平台，`plan`/`parsers`/`next` | 需要 |
-| `ui` | ✅ | 贡献 UI 组件（跑在不透明源 iframe） | 需要 |
+| `ui` | ✅ | 贡献声明式 UiNode（外部代码在 QuickJS 内执行） | 需要 |
 | `first-party` | ✅ | 编译进应用的宿主内置 / 官方插件 | 可选 |
 
 ⚠️ **`kind` 会被严格核对。** 宿主加载插件后，运行时自报的 `kind` 必须与 manifest 声明的
 `kind` **逐字相同**，否则以 `EMANIFEST` 拒绝激活。
 
 > 这条核对在进程内运行时（第一方插件）里是以 manifest 为准的 —— 模块本来就是宿主自己塞进去的，
-> 它没有独立知识。将来 QuickJS 沙箱运行时**确实**能独立观察到加载进来的东西是不是可执行代码，
-> 那时候这条核对才有实质意义。
+> 它没有独立知识。当前 QuickJS 运行器也按 manifest 返回 kind；核对只保证契约一致，
+> 不提供来源认证。外部路径、保留命名空间校验与独立解释器另行承担准入和执行隔离。
 
 ---
 
@@ -873,8 +869,8 @@ const DEFAULT_QUOTA = {
 
 1. **D8 不允许回调。** 插件是纯函数，没有异步宿主 API，也不持有状态。
    一个「处理点击」的 React 组件必须有回调，有回调就得有活的插件对象 —— 那就把 D8 拆了。
-2. **沙箱只能传 JSON。** 将来第三方插件跑在 QuickJS / iframe 里，React 组件跨不过去，
-   JSON 树天然可以。现在写回调，等沙箱落地时整个 UI 层要重写。
+2. **沙箱只能传 JSON。** 当前第三方插件跑在 QuickJS 里，React 组件跨不过去，
+   JSON 树天然可以，因此内置与外部插件共用声明式 UI 契约。
 3. **能在 Node 里测。** `render()` 是纯函数，断言输出树就行 —— 不需要 jsdom、不需要浏览器。
    宿主的渲染器也是用 `createElement` 写成 `.ts` 的，所以「UI 能测」不是口号。
 
@@ -1633,35 +1629,31 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 - `contributes.entityTypes` 用 `Array<{ name, schema }>` 形状
 - 字段级 `shared` 投影，以及「缺省视为共享」的默认值
 
-### ❌ 未实现
+### 当前外部插件实现
+
+`.mtp` 校验、权限确认、QuickJS 纯函数、启停、卸载、代码与启用状态持久化已落地。`CursorStore` 已持久化游标。控件通过 `requires ⊆ permissions.data.read` 检查后选择记录；底层 `bus.read` 不单独查声明权限，属于宿主内部口，VM 无直接引用。
+
+外部包必须为 logic/connector/ui，entry 为 bundle.js；不开放 auth/secrets、notify、local文件导入、fs、db.raw、后台、模型、stream、remoteCode 或 first-party/declarative 包。详见 [安装与开发指南](../../docs/plugins/README.md)。内置插件不受这个外部包限制。
+
+### 尚未实现
 
 | 项 | 说明 |
 |---|---|
-| **`bus.read` 的读闸** | `data.read` **没有被检查**。唯一调用方是宿主自己的 Timeline 视图，它没有插件身份，一加闸就掐死现有功能。**按「没有读闸」来设计** |
-| **游标持久化** | 只在宿主的一个 `Map` 里，重启即失 —— 分页在**一次运行期间**可靠，跨重启不保证 |
-| **`installBuiltin()`** | `allowReservedPrefix` 现在是个裸布尔，任何 `install()` 调用方都能传 true。第三方安装路径出现前必须收成独立入口 |
-| **能力探测的交付通道** | `HandshakeOk` 这个类型**从没被构造过**，插件是纯函数也拿不到它 —— 所以插件现在**无法探测**宿主能力（§9）。**短期实验已明确决定不做**：现在只有第一方插件，它们本来就知道宿主有什么。要落地时是**纯加法**（`PlanInput` 加一个可选字段，老插件不受影响） |
-| **QuickJS 沙箱** | 当前只有进程内运行时（第一方插件）。第三方插件**还不能跑** |
-| **插件签名校验** | **不做**（短期实验的明确决定）。`compiledInVerifier` 只回答「这段代码在不在应用包里」，不回答「签名对不对」。准入的真正闸门是 `InProcessRuntime.load()` → 不在 `modules` 里就 `ENOTFOUND`。⚠️ 所以 `signed` 这个等级名对第一方**名不副实**，别把它当「验过了」 |
-| **`net.stream`** | 二期能力，不在 `HOST_CAPABILITIES_V1` 里 |
-| **`db.raw`** | 需人工审核流程，未搭 |
-| **信任记录持久化** | 目前是内存态，重启即失 |
-| **`ui` 形态的 iframe 宿主** | 契约里有 `kind: 'ui'`，宿主侧未实现（控件目前走的是进程内渲染） |
-| **用户改布局的 UI** | 布局能存能读能校验，但改它还得手改 KV。默认布局从目录自动派生 |
-| **插件 CLI** | 没有 `create` / `build` / `sign` |
-| **命令的更多 `coreOp`** | 现在只有 `task.setStatus` / `task.delete`。封闭清单按需扩张，见 §7.11.5 |
+| 独立 Worker | 当前每插件独占 WASM 模块，调用仍在主线程；单调用约200ms预算 |
+| 密码学签名、自动更新、市场 | 外部插件明确标为未验签；更新需卸载后重新安装确认 |
+| installBuiltin 类型隔离 | 内部仍有 allowReservedPrefix 布尔；外部安装器从不传入且包预检拒保留ID |
+| 能力探测交付 | 契约能力上限不代表外部首版全部开放；以安装器支持清单为准 |
+| 信任记录持久化 | 插件包/启停持久化不等于完整信任历史持久化 |
+| iframe、用户布局编辑器 | 当前外部视图返回 UiNode，无任意HTML/React/iframe |
+| 完整 CLI | 已有 pack/validate，没有 create/build/sign/dev；validate不会执行代码 |
+| 更多 coreOp | 保持封闭清单，按需增加 |
 
-### 🔒 已知的安全债
+### 已知边界
 
-- **跨插件 cookie 隔离不成立**。`CapacitorHttp` 的原生 cookie 存储是**进程全局**的
-  （`CapacitorCookies.java:26` 装了全局 `CookieHandler`），无法从 JS 关闭。
-  任何「这个插件不许携带 cookie」的开关在解决它之前都是**假的**。
-  真正的修法：按插件替换原生 `CookieHandler`，或每个请求前重置 cookie 存储（纯 TS，有竞态）。
-- **域名匹配规则有两份实现**（`plugin-api` 与核心层 `allowlist.ts`）。
-  已有跨包差分测试守着不漂移，但正确的做法是单向依赖。
-- **不透明源 iframe 不是对原生桥的隔离边界**。Android 的 `addJavascriptInterface`
-  会把原生桥注入 WebView 的**所有 frame**。所以授权只能靠每次调用携带的能力令牌，
-  不能靠 frame 来源判定。
+- BB/GS/EAMS 登录 Cookie 在独立原生进程，外部插件无法获得其会话；通用 CapacitorHttp 的其他 Cookie 隔离尚未完成。
+- QuickJS 全局隐藏 eval/Function/SharedArrayBuffer/Atomics，但 VM 内动态代码构造并非全部消失；独立解释器与无宿主引用才是边界。
+- 域名匹配仍有两份实现，由跨包差分测试守护。
+- Android 原生桥可能对所有 frame 可见，因此本版不运行任意外部 iframe。
 
 ---
 
@@ -1669,8 +1661,8 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 
 ```bash
 # 仓库根
-npm test              # plugin-api 115 项 + kernel 85 项 + shell 87 项 + 跨包差分 28 项 + … 共 417 项
-npm run typecheck     # 三个包
+npm test              # 全部工作区测试，数量以当次输出为准
+npm run typecheck     # 工作区类型检查
 npm run check         # 上面两个
 ```
 

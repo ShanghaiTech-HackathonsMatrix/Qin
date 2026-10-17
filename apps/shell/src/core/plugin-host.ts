@@ -68,6 +68,7 @@ import {
   type DataBackend,
   type EntityRecord,
   type LoadedPlugin,
+  type PluginRuntime,
   type QuotaPolicy,
   type SyncReport,
   type TrustBackend,
@@ -115,7 +116,9 @@ export class InProcessRuntime {
   /** 显式覆盖的 kind。没给就以 manifest 为准（见 load()） */
   private readonly kindOverrides = new Map<string, PluginKind>();
 
-  constructor(initial?: ReadonlyMap<string, PluginExports>) {
+  private fallback?:PluginRuntime;
+  constructor(initial?: ReadonlyMap<string, PluginExports>,fallback?:PluginRuntime) {
+    this.fallback=fallback;
     if (initial) for (const [id, mod] of initial) this.provide(id, mod);
   }
 
@@ -155,12 +158,14 @@ export class InProcessRuntime {
   async load(manifest: Manifest, _granted: GrantedPermissions): Promise<PluginResult<LoadedPlugin>> {
     const exports = this.modules.get(manifest.id);
     if (!exports) {
+      if(this.fallback)return this.fallback.load(manifest,_granted);
       return fail('ENOTFOUND', `未注册的第一方插件: ${manifest.id}`, { pluginId: manifest.id });
     }
     return ok({ exports, kind: this.kindOverrides.get(manifest.id) ?? manifest.kind });
   }
 
-  async unload(): Promise<void> {
+  async unload(pluginId:string): Promise<void> {
+    if(!this.modules.has(pluginId))await this.fallback?.unload(pluginId);
     // 进程内对象没有需要回收的执行环境。
     // 沙箱运行时（P2）在这里销毁 QuickJS 模块实例（D9：一个插件一个实例）。
   }
@@ -196,6 +201,7 @@ export function compiledInVerifier(modules: ReadonlyMap<string, PluginExports>) 
 // ------------------------------------------------------------ 适配器
 
 export interface PluginHostOptions {
+  externalRuntime?:PluginRuntime;
   maxSteps?: number;
   /** 宿主依据插件身份绑定平台会话。插件不能自己传入或选择句柄。 */
   sessionFor?: (pluginId: string) => string | undefined;
@@ -299,6 +305,9 @@ export class PluginHost {
   private readonly sessionFor: PluginHostOptions['sessionFor'];
   private readonly broker: SyncBroker;
   private readonly runtime: InProcessRuntime;
+  private cancelled=new Set<string>();
+  onProgress?: (pluginId:string,detail:string)=>void;
+  cancelSync(pluginId:string) {this.cancelled.add(pluginId);}
   /** pluginId → 当前能力令牌 id */
   private readonly tokens = new Map<string, string>();
   /** 宿主为插件准备的**本地文档**，键是 `pluginId \0 url`（见 `localKey`） */
@@ -337,7 +346,7 @@ export class PluginHost {
       now: this.clock,
     });
 
-    this.runtime = new InProcessRuntime(opts.modules);
+    this.runtime = new InProcessRuntime(opts.modules,opts.externalRuntime);
 
     // 宿主自己也要声明 schema —— `DataBus.emit()` 不认没有 schema 的类型，
     // 否则 `projectCoreEntities()` 会被自己刚建的闸拦住。
@@ -399,6 +408,8 @@ export class PluginHost {
   async uninstall(pluginId: string, opts: { keepData?: boolean } = {}) {
     const r = await this.registry.uninstall(pluginId, opts);
     if (r.ok) {
+      // 槽投影属于定义方；删除源插件数据时也要清理这些派生记录。
+      if (!opts.keepData) for (const slot of this.slots().values()) this.clearSlotConsumer(slot, pluginId);
       // 卸载即撤销出网能力：否则一个已卸载的插件手里的令牌还能继续用
       this.core.tokens.revokePlugin(pluginId);
       this.tokens.delete(pluginId);
@@ -422,6 +433,7 @@ export class PluginHost {
    * IO 全部由宿主完成（D8）。这也是为什么整条链路可以完全同步地跑在沙箱里。
    */
   async sync(pluginId: string, input: PlanInput): Promise<PluginResult<SyncReport>> {
+    this.cancelled.delete(pluginId);
     const exports = this.registry.exportsOf(pluginId);
     if (!exports) {
       return fail('ENOTFOUND', `插件 ${pluginId} 当前不可用（未安装或未激活）`, { pluginId });
@@ -873,6 +885,8 @@ export class PluginHost {
     pluginId: string,
     req: PlannedRequest,
   ): Promise<PluginResult<{ status: number; body: string; url: string }>> {
+    if(this.cancelled.has(pluginId))return fail('EPERM','已停止同步');
+    this.onProgress?.(pluginId,`正在读取 ${req.id}…`);
     // ⓪ 本地资源：不出网，宿主自己满足。这是本地导入（.ics 之类）的落点。
     //
     // 之所以在这里分叉而不是在内核里：内核既不知道权限、也不知道宿主准备了什么。
@@ -924,6 +938,7 @@ export class PluginHost {
       }
 
       // 只把 body 交给插件。响应头（含 set-cookie）不进沙箱
+      if(this.cancelled.has(pluginId))return fail('EPERM','已停止同步');
       return ok({ status: res.status, body: res.body, url: res.url });
     } catch (e) {
       const code = errorCode(e);

@@ -17,8 +17,6 @@ import java.util.*;
 
 /** 独立进程的原生会话代理。应用 WebView 与插件均不能读取这里的 Cookie。 */
 public class PlatformSessionProvider extends ContentProvider {
-    static final String AUTHORITY = "dev.matrix.shell.platformsessions";
-    static final Uri URI = Uri.parse("content://" + AUTHORITY);
     static boolean configured;
     static String userAgent;
     static synchronized void configure(android.content.Context context) {

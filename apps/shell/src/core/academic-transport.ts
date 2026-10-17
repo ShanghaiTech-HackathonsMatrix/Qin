@@ -5,6 +5,7 @@ import { ENTRY, PLUGIN_IDS, PROVIDERS, type Provider } from '../plugins/builtin/
 export interface PlatformSessionBridge {
   login(input: { provider: Provider }): Promise<{ completed: boolean }>;
   clear(): Promise<void>;
+  openExternal(input:{url:string}):Promise<void>;
   request(input: { provider: Provider; url: string; method: string; body?: string; timeout: number }): Promise<TransportResponse>;
 }
 export const PlatformSessions = registerPlugin<PlatformSessionBridge>('PlatformSessions');

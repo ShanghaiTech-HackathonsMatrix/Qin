@@ -10,6 +10,7 @@
  */
 
 import { useState } from 'react';
+import { openExternal } from '../platform/open-external';
 
 export interface AssignmentDraft {
   id: string;
@@ -23,6 +24,8 @@ export interface AssignmentDraft {
   courseTitle: string;
   source: string;
   status: string;
+  url?: string;
+  courseUrl?: string;
 }
 
 const STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -50,6 +53,8 @@ interface Props {
 }
 
 export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose }: Props) {
+  const [error,setError]=useState('');
+  const open=async(url:string)=>{try{await openExternal(url);}catch(e){setError(String(e));}};
   const [title, setTitle] = useState(draft.title);
   const [due, setDue] = useState(toLocalInput(draft.dueAt));
   const [note, setNote] = useState(draft.note);
@@ -84,6 +89,11 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
           <span>{STATUS_TEXT[draft.status] ?? draft.status}</span>
         </div>
 
+        <div className="conn__actions">
+          {draft.url && <button type="button" className="btn" onClick={()=>void open(draft.url!)}>打开作业网页 ↗</button>}
+          {draft.courseUrl && <button type="button" className="btn" onClick={()=>void open(draft.courseUrl!)}>打开 BB 课程 ↗</button>}
+        </div>
+        {error && <p role="alert">{error}</p>}
         <label className="field-label">
           名称
           <input className="field" value={title} maxLength={200} required onChange={(e) => setTitle(e.target.value)} />

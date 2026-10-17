@@ -57,6 +57,7 @@ export function WidgetPage({ host, layout, onNavigate, onDataChanged }: WidgetPa
 
   // 数据一变就重渲染。控件自己不发事件，它只会被重新调用
   useEffect(() => host.bus.subscribe(() => setTick((t) => t + 1)), [host]);
+  useEffect(() => host.registry.on(() => setTick((t) => t + 1)), [host]);
 
   // `tick` 在依赖里是刻意的：装/卸插件会改变目录
   const catalog = useMemo(() => buildCatalog(host), [host, tick]);
@@ -164,6 +165,7 @@ export function PageView({
   const [tick, setTick] = useState(0);
 
   useEffect(() => host.bus.subscribe(() => setTick((t) => t + 1)), [host]);
+  useEffect(() => host.registry.on(() => setTick((t) => t + 1)), [host]);
 
   const catalog = useMemo(() => buildCatalog(host), [host, tick]);
   const entry = catalog.find(pluginId, viewId);

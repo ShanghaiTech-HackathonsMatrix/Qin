@@ -1,6 +1,7 @@
+import LessonSheet from '../components/LessonSheet';
 ﻿import { useEffect, useState } from 'react';
 import type { AcademicService } from '../core/academic-service.ts';
-import { currentWeek, minutes, parseWeeks, type LessonRule, type Assignment, type TimetableSettings, type Period, type Provider, type LessonOverride, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
+import { currentWeek, minutes, type LessonRule, type Assignment, type TimetableSettings, type Period, type Provider, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
 import './academic.css';
 const LABELS:Record<Provider,string>={gradescope:'Gradescope',blackboard:'Blackboard',eams:'教务课表'};
 const days=['一','二','三','四','五','六','日'];
@@ -15,7 +16,7 @@ export default function AcademicView({service:s,onChanged}:{service:AcademicServ
   const settings=s.settings;
   useEffect(()=>setWeek(n=>Math.max(1,Math.min(n,settings.totalWeeks))),[settings.totalWeeks]);
   const rules=s.snapshots.flatMap(x=>x.rules).filter(r=>!settings.selectedCourses.eams||settings.selectedCourses.eams.includes(r.courseId));
-  const visibleRules=rules.map(r=>({...r,...s.corrections.lessons[r.id]})).filter(r=>!r.hidden&&r.weekday<=(settings.showWeekend?7:5)&&(settings.showOtherWeeks||r.weeks.includes(week)));
+  const visibleRules=rules.map(r=>({...r,note:s.corrections.lessons[r.id]?.note})).filter(r=>r.weekday<=(settings.showWeekend?7:5)&&(settings.showOtherWeeks||r.weeks.includes(week)));
   const placements=days.flatMap((_,day)=>{
     const laneEnds:number[]=[],items=visibleRules.filter(r=>r.weekday===day+1).sort((a,b)=>a.first-b.first||a.last-b.last).map(r=>{
       let lane=laneEnds.findIndex(end=>end<r.first);if(lane<0)lane=laneEnds.length;laneEnds[lane]=r.last;return {r,lane};
@@ -55,7 +56,7 @@ export default function AcademicView({service:s,onChanged}:{service:AcademicServ
         </button>)}
       </div></div>
       {!rules.length&&<p className="muted">连接教务并同步后，课表将显示在这里。</p>}
-      <details className="card"><summary>全部排课与已隐藏课程</summary>{rules.map(r=><button className="academic-list-item" key={r.id} onClick={()=>setLesson({...r,...s.corrections.lessons[r.id]})}>{r.title} · 周{days[r.weekday-1]} {r.first}–{r.last}节{s.corrections.lessons[r.id]?.hidden?'（已隐藏）':''}</button>)}</details>
+      <details className="card"><summary>全部排课与课程备注</summary>{rules.map(r=><button className="academic-list-item" key={r.id} onClick={()=>setLesson(r)}>{r.title} · 周{days[r.weekday-1]} {r.first}–{r.last}节</button>)}</details>
     </>}
     {mode==='assignments'&&<><p className="muted">无法确定的截止日期会标为“待确认”，不会猜测。修改时间不改变平台原始信息。</p>{!tasks.length&&<p className="muted">同步 Gradescope 或 Blackboard 后显示作业。</p>}
       {tasks.map(original=>{const a={...original,...s.corrections.assignments[original.id]},done=a.done??(['submitted','graded'].includes(a.status));return <button className="card academic-task" key={a.id} onClick={()=>setAssignment(original)}>
@@ -63,7 +64,7 @@ export default function AcademicView({service:s,onChanged}:{service:AcademicServ
         <span>{a.dueAt===null?'截止时间待确认':time(a.dueAt)}</span><small>{a.status==='not_submitted'?'未提交':a.status==='submitted'?'已提交':a.status==='graded'?'已评分':'状态待确认'}{a.hidden?' · 已隐藏':''}</small>{a.note&&<span>备注：{a.note}</span>}
       </button>;})}</>}
     {mode==='settings'&&<Settings key={JSON.stringify(s.settings)} s={s} run={run}/>}
-    {lesson&&<LessonEditor rule={lesson} s={s} close={()=>setLesson(null)} run={run}/>}
+    {lesson&&<LessonSheet id={lesson.id} service={s} close={()=>setLesson(null)}/>}
     {assignment&&<AssignmentEditor assignment={assignment} s={s} close={()=>setAssignment(null)} run={run}/>}
   </div>;
 }
@@ -105,24 +106,6 @@ function Settings({s,run}:{s:AcademicService;run:(fn:()=>Promise<unknown>)=>Prom
     </section>
     <button className="btn btn--primary" disabled={s.busy} onClick={()=>void run(async()=>{if(d.reminders&&!s.settings.reminders){await s.requestReminderPermission();}await s.saveSettings(d);})}>保存课表设置</button>
   </div>;
-}
-function LessonEditor({rule:r,s,close,run}:{rule:LessonRule;s:AcademicService;close:()=>void;run:(fn:()=>Promise<unknown>)=>Promise<void>}) {
-  const [d,setD]=useState({...r,...s.corrections.lessons[r.id]}),[weeks,setWeeks]=useState(d.weeks.join(','));
-  return <div className="sheet-backdrop"><form className="sheet stack" onSubmit={e=>{e.preventDefault();void run(async()=>{
-    const initial={...r,...s.corrections.lessons[r.id]},next={...d,weeks:parseWeeks(weeks)},patch:LessonOverride={};
-    for(const key of ['title','teacher','location','weekday','first','last','weeks','note','hidden'] as const)
-      if(JSON.stringify(initial[key])!==JSON.stringify(next[key]))Object.assign(patch,{[key]:next[key]});
-    await s.editLesson(r.id,patch);close();});}}>
-    <div className="row"><h3>课程详情</h3><button type="button" className="btn" onClick={close}>关闭</button></div>
-    <label>课程名称<input className="field" value={d.title} required maxLength={200} onChange={e=>setD({...d,title:e.target.value})}/></label>
-    <div className="academic-pair"><label>上课地点<input className="field" value={d.location} onChange={e=>setD({...d,location:e.target.value})}/></label><label>授课教师<input className="field" value={d.teacher} onChange={e=>setD({...d,teacher:e.target.value})}/></label></div>
-    <label>星期<select className="field" value={d.weekday} onChange={e=>setD({...d,weekday:+e.target.value})}>{days.map((v,i)=><option key={v} value={i+1}>周{v}</option>)}</select></label>
-    <div className="academic-pair"><label>开始节次<input className="field" type="number" min={1} max={s.settings.periods.length} value={d.first} onChange={e=>setD({...d,first:+e.target.value})}/></label><label>结束节次<input className="field" type="number" min={1} max={s.settings.periods.length} value={d.last} onChange={e=>setD({...d,last:+e.target.value})}/></label></div>
-    <label>教学周次<input className="field" value={weeks} onChange={e=>setWeeks(e.target.value)} placeholder="1-3,5-16 或 1-16单周"/></label>
-    <label>个人备注<textarea className="field" value={d.note??''} maxLength={1000} onChange={e=>setD({...d,note:e.target.value})}/></label>
-    <label><input type="checkbox" checked={d.hidden??false} onChange={e=>setD({...d,hidden:e.target.checked})}/> 隐藏此排课（保留数据）</label>
-    <div className="row"><button type="button" className="btn" disabled={s.busy} onClick={()=>void run(async()=>{await s.resetLesson(r.id);close();})}>恢复平台数据</button><button className="btn btn--primary" disabled={s.busy}>保存课程修正</button></div>
-  </form></div>;
 }
 function AssignmentEditor({assignment:a,s,close,run}:{assignment:Assignment;s:AcademicService;close:()=>void;run:(fn:()=>Promise<unknown>)=>Promise<void>}) {
   const corrected={...a,...s.corrections.assignments[a.id]};

@@ -15,6 +15,10 @@ import type { NotifyPort } from '../core/notify/index.ts';
 import { PluginHost } from '../core/plugin-host';
 import { AcademicTransport, academicSessionFor, academicNativeAvailable, PlatformSessions } from '../core/academic-transport.ts';
 import { AcademicService } from '../core/academic-service.ts';
+import { SandboxRuntime } from '../core/sandbox-runtime.ts';
+import { ExternalPlugins } from '../core/external-plugins.ts';
+import {PersonalSchedule} from '../core/personal-schedule.ts';
+import { sandboxModule } from './sandbox-module.ts';
 import { CapacitorTransport } from '../core/transport.ts';
 import { createConnector, connectorManifest } from '../plugins/builtin/academic/connectors.ts';
 import { PROVIDERS, PLUGIN_IDS, ENTRY, type Provider } from '../plugins/builtin/academic/model.ts';
@@ -35,6 +39,8 @@ import type { TaskStore } from './strategies/store/types';
 import type { ResolutionReport } from './strategies/types';
 
 export interface Platform {
+  personal:PersonalSchedule;
+  externalPlugins:ExternalPlugins;
   academic: AcademicService;
   /**
    * 学业同步是不是跑在模拟通道上（dev + `?demo=1`）。
@@ -79,9 +85,7 @@ export interface Platform {
    * `packages/capacitor-notify/`。Android 提供原生闹钟与通知，其他端如实报告不支持，
    * 不支持的平台 `isSupported()` 为 false、`schedule()` 抛错，不伪装成排程成功。
    *
-   * ⚠️ 它现在还没有被任何调度器调用，宿主也**没有**把 `notify.local` 放进
-   * `IMPLEMENTED_CAPABILITIES`。等各端 bridge 真能排程了再一起加 ——
-   * 在那之前加进去就是假开关。
+   * 学业服务与个人日程调用此接口；外部插件暂不开放 notify.local。
    */
   notify: NotifyPort;
   /** 审计的持久化后端，便于调试面板显示落盘状态 */
@@ -188,7 +192,9 @@ export async function bootstrap(): Promise<Platform> {
   */
   const dataKv = simulated ? new EphemeralStore() : kv.value;
 
+  const sandbox=new SandboxRuntime(sandboxModule);
   const plugins = new PluginHost({
+    externalRuntime:sandbox,
     maxSteps: 605,
     sessionFor: academicSessionFor,
     core,
@@ -283,6 +289,8 @@ export async function bootstrap(): Promise<Platform> {
     const result=await plugins.install(manifest,{allowReservedPrefix:true});
     if(!result.ok) warnings.push(`学业插件安装失败：${result.message}`);
   }
+  const externalPlugins=new ExternalPlugins(plugins,dataKv,sandbox,domains=>core.net.setAllowlist([...new Set([...loadAllowlist(),...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname),...domains])]));
+  try{await externalPlugins.restore();warnings.push(...externalPlugins.warnings);}catch(e){warnings.push(`外部插件恢复失败：${e instanceof Error?e.message:String(e)}`);}
   const restoredEntities = await plugins.restoreData();
   if (!restoredEntities.ok) {
     warnings.push(`读取已存的数据失败：${restoredEntities.message}。本次以空数据启动。`);
@@ -325,6 +333,8 @@ export async function bootstrap(): Promise<Platform> {
   } catch(e) {warnings.push(`学业数据恢复失败：${e instanceof Error?e.message:String(e)}`);}
 
   return {
+    personal:await (async()=>{const personal=new PersonalSchedule(dataKv,notify);try{await personal.init();}catch(e){warnings.push(`个人日程恢复失败：${String(e)}`);}return personal;})(),
+    externalPlugins,
     academic,
     /** 是否在跑模拟同步（dev + `?demo=1`）。界面据此写明「数据是合成的」 */
     academicSimulated: simulated,

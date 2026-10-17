@@ -31,6 +31,7 @@ export function buildCatalog(host: PluginHost): ViewCatalog {
   const issues: string[] = [];
 
   for (const rec of host.registry.list()) {
+    if (rec.state !== 'active') continue;
     const pluginId = rec.manifest.id;
     const views = rec.manifest.contributes?.views ?? [];
     const renders = host.registry.exportsOf(pluginId)?.renders ?? {};

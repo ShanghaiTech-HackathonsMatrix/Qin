@@ -1,6 +1,6 @@
 import type { Manifest, ParseInput, ParseResult, PluginExports, PlannedRequest } from '@matrix/plugin-api';
 import { anchors, attr, requirePage } from './html.ts';
-import { blackboardAssignment, blackboardCourses, eamsSelection, eamsTimetable, gradescopeAssignments, gradescopeCourses } from './parsers.ts';
+import { blackboardAssignment, blackboardCourses, blackboardPending, eamsSelection, eamsTimetable, gradescopeAssignments, gradescopeCourses } from './parsers.ts';
 import { ENTRY, PLUGIN_IDS, type AcademicCourse, type Assignment, type LessonRule, type Period, type Provider } from './model.ts';
 
 export const SNAPSHOT = 'academic_snapshot';
@@ -8,6 +8,7 @@ export const MAX_ACADEMIC_PAGES = 600;
 export interface AcademicSnapshot {
   provider: Provider; syncedAt: number; courses: AcademicCourse[]; assignments: Assignment[]; rules: LessonRule[];
   periods: Period[]; semester: string;
+  mode?:string;
 }
 export function connectorManifest(provider: Provider): Manifest {
   return { id:PLUGIN_IDS[provider], name:{gradescope:'Gradescope 作业',blackboard:'Blackboard 作业',eams:'教务课表'}[provider], version:'0.1.0', apiVersion:'^1.0.0', kind:'first-party',
@@ -15,11 +16,13 @@ export function connectorManifest(provider: Provider): Manifest {
     contributes:{entityTypes:[{name:SNAPSHOT, schema:{ type:'object', properties:{json:{type:'string',maxLength:2*1024*1024,shared:false}},required:['json'],additionalProperties:false }}]} };
 }
 interface Page { url: string; kind: string; course?: AcademicCourse; depth: number; title?: string; body?: string }
-/** 每轮只在最后产出一个完整快照；任何前序错误都不会覆盖旧数据。 */
+/** 每页累积写回并保留未读到的旧作业，尾页超时也不会丢弃已成功的读取。 */
 export function createConnector(provider: Provider): PluginExports {
   let snapshot: AcademicSnapshot;
   let queue: Page[] = [], seen = new Set<string>(), page: Page, count = 0, parsed = 0;
   let settings: Record<string,string> = {};
+  let previous:AcademicSnapshot|undefined;
+  const merge=(rows:Assignment[])=>{for(const row of rows){const index=snapshot.assignments.findIndex(a=>a.id===row.id);const old=index<0?undefined:snapshot.assignments[index];const next={...row,verifiedAt:snapshot.syncedAt,needsReview:row.status==='unknown'&&old?.needsReview,completedAt:['submitted','graded'].includes(row.status)?old?.completedAt??snapshot.syncedAt:undefined};if(index<0)snapshot.assignments.push(next);else snapshot.assignments[index]=next;}};
   const selected = () => settings.selectedCourses ? JSON.parse(settings.selectedCourses) as string[] : null;
   const canonical = (url:string) => {
     const u=new URL(url);u.hash='';
@@ -47,7 +50,7 @@ export function createConnector(provider: Provider): PluginExports {
     /*
       丢页保护。`broker` 允许单页失败后继续扫（那是对的 —— 一页超时不该连坐
       整轮），但「一页失败」和「大半失败」是两件事：后者说明这次网络根本不通，
-      再拿它的结果去覆盖旧数据就是拿空的盖掉满的。丢了一半以上就整轮作废。
+      已读页已累计保存，旧作业始终保留；丢了一半以上时报告不完整。
     */
     const lost = count - parsed;
     if (lost > 0 && parsed < count / 2) throw new Error(`这一轮只读回 ${parsed}/${count} 页，已保留上次结果`);
@@ -56,11 +59,11 @@ export function createConnector(provider: Provider): PluginExports {
   return {
     plan(input) {
       settings=input.settings??{}; queue=[];seen=new Set();count=0;parsed=0;
-      snapshot={provider,syncedAt:input.now,courses:[],assignments:[],rules:[],periods:[],semester:''};
+      previous=settings.previousSnapshot?JSON.parse(settings.previousSnapshot):undefined;
+      snapshot={provider,syncedAt:input.now,courses:[],assignments:previous?.assignments.map(a=>({...a}))??[],rules:[],periods:[],semester:''};
       enqueue({url:ENTRY[provider],kind:'entry',depth:0}); return {requests:[request()]};
     },
     parsers:{page(input: ParseInput): ParseResult {
-      parsed+=1;
       requirePage(input.body,input.status,input.baseUrl);
       if (provider==='eams') {
         if (page.kind==='entry') {
@@ -75,17 +78,37 @@ export function createConnector(provider: Provider): PluginExports {
         const selection=selected();
         const courses=snapshot.courses.filter(c=>selection===null||selection.includes(c.id));
         if (courses.length>60) throw new Error('课程超过 60 门，请选择需要同步的课程');
-        for (const course of courses) enqueue({url:course.url,kind:'course',course,depth:0});
+        if(provider==='blackboard' && settings.scanMode!=='deep') {
+          const pending=blackboardPending(input.body,input.baseUrl,snapshot.courses);
+          if(!pending) throw new Error('未识别 BB 待完成作业模块，已保留历史数据；可使用「扫描课程目录」补充读取');
+          snapshot.mode='pending';
+          const listed=new Set<string>();
+          for(const link of pending.links.filter(x=>selection===null||selection.includes(x.course.id))) {
+            enqueue({...link,kind:'assignment',depth:0});
+            const u=new URL(link.url);listed.add(`${link.course.id}:assignment:${u.searchParams.get('content_id')??u.searchParams.get('assign_group_id')}`);
+          }
+          const missing=snapshot.assignments.filter(a=>!listed.has(a.id)&&!['submitted','graded'].includes(a.status)&&(selection===null||selection.includes(a.courseId)));
+          for(const a of missing)a.needsReview=true;
+          // 每轮核对最多 8 个消失条目，按上次核对时间轮转；消失不等于已提交。
+          for(const a of missing.sort((a,b)=>(a.verifiedAt??0)-(b.verifiedAt??0)).slice(0,8)) {
+            const course=snapshot.courses.find(c=>c.id===a.courseId);
+            if(course)enqueue({url:a.url,title:a.title,course,kind:'assignment',depth:0});
+          }
+        } else {
+          snapshot.mode=provider==='blackboard'?'deep':'courses';
+          for (const course of courses) enqueue({url:course.url,kind:'course',course,depth:0});
+        }
       } else if (provider==='gradescope') {
-        snapshot.assignments.push(...gradescopeAssignments(input.body,page.course!,settings.gradescopeTimezone??''));
+        merge(gradescopeAssignments(input.body,page.course!,settings.gradescopeTimezone??''));
       } else {
         const assignment=blackboardAssignment(input.body,input.baseUrl,page.course!,page.title??page.course!.title);
-        if (assignment && !snapshot.assignments.some(a=>a.id===assignment.id)) snapshot.assignments.push(assignment);
+        if (assignment) merge([assignment]);
         const origin=new URL(ENTRY.blackboard).origin;
         const frames=[...input.body.matchAll(/<(?:frame|iframe)\b[^>]*>/gi)].flatMap(m=>{
           try {const src=attr(m[0],'src');return src?[{url:new URL(src,input.baseUrl).href,title:page.course!.title}]:[];}catch{return [];}
         });
         for (const a of [...anchors(input.body,input.baseUrl),...frames]) {
+          if(snapshot.mode==='pending')break;
           const u=new URL(a.url);
           if (u.origin!==origin || !/\/webapps\/(?:blackboard\/content\/(?:listContent|launchLink)\.jsp|assignment\/uploadAssignment)/i.test(u.pathname)) continue;
           // launchLink 的工具入口会跳转论坛、小组等；课程目录只需 toc_id。
@@ -97,7 +120,8 @@ export function createConnector(provider: Provider): PluginExports {
           enqueue({url:u.href,kind:'content',course:page.course,depth:page.depth+1,title:a.title});
         }
       }
-      return queue.length ? {summary:`已读取 ${count} 页`} : finish();
+      parsed+=1;
+      return queue.length ? {entities:snapshot.courses.length?[{type:SNAPSHOT,id:'current',data:{json:JSON.stringify(snapshot)}}]:[],summary:`已读取 ${parsed}/${count} 页 · ${snapshot.assignments.length} 项作业`} : finish();
     }},
     next:()=> queue.length ? {next:'page',requests:[request()]} : null,
   };

@@ -824,7 +824,7 @@ body, .app { background: #f7f7f3; color: #111; }
   display: flex;
   flex-direction: column;
   gap: clamp(6px, 1.2vh, 11px);
-  overflow: hidden;
+  overflow-y: auto;
   /* 底部只留标签栏的高度。加号搬进人物卡之后，不必再为浮动圆钮预留 50px */
   padding-bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom));
 }
@@ -838,21 +838,18 @@ body, .app { background: #f7f7f3; color: #111; }
   为什么不是一直用 grid：grid 的等分行高会把英雄区和小图鉴压成一样高，
   而单列 flex 才能让「余量喂给卡片本身」这套已经量好的行为保持不变。
 */
-.home-grid { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: clamp(6px, 1.2vh, 11px); overflow: hidden; }
+.home-grid { flex: 0 0 auto; display: flex; flex-direction: column; gap: 14px; overflow: visible; }
 .home-grid[data-mode='grid'] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
 /* 超出 8 格就别硬裁了，让它在容器内滚动 */
-.home-grid[data-scroll='yes'] { overflow-y: auto; }
+.home-grid[data-scroll='yes'] { overflow: visible; }
 .home-slot { min-width: 0; }
 .home-grid[data-mode='stack'] > .home-slot { flex: 0 0 auto; min-height: 0; }
 .home-grid[data-mode='grid'] > .home-slot[data-size='full'] { grid-column: 1 / -1; }
 
-/* 余量喂给英雄区与 DDL 卡片，而不是喂给间隙 */
-.home-grid[data-mode='stack'] > .home-slot[data-card='hero'] { flex: 1 1 auto; max-height: calc(clamp(176px, 24vh, 232px) * var(--font-base)); display: flex; flex-direction: column; }
-.home-grid[data-mode='stack'] > .home-slot[data-card='hero'] > .quest-intro { flex: 1 1 auto; }
-.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .quest-section { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .ddl-list { flex: 1 1 auto; grid-auto-rows: 1fr; }
-
+/* 首页只有外层滚动，卡片按内容增长。 */
+.home-grid[data-mode='stack'] > .home-slot[data-card] { flex:0 0 auto; max-height:none; min-height:auto; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .quest-section { min-height:auto; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .ddl-list { grid-auto-rows:auto; }
 /* 卡片内部尺寸：首页比其它页更紧 */
 .app__body[data-page='home'] .quest-intro { padding: clamp(10px, 1.7vh, 15px); display: flex; flex-direction: column; justify-content: center; }
 .app__body[data-page='home'] .quest-intro h1 { font-size: calc(clamp(20px, 2.9vh, 29px) * var(--font-base) * var(--font-scale)); line-height: 1.18; margin: 3px 0 0; letter-spacing: -.02em; }
@@ -1113,3 +1110,18 @@ button.log-row:active { background: #f0f0ec; }
 @media (max-width: 370px) { .quest-intro__stats b { font-size: calc(17px * var(--font-base) * var(--font-scale)); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
+
+.task-filters { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 18px; }
+.task-filters button[aria-pressed='true'] { background:var(--ink,#292923); color:var(--paper,#fff); }
+.app[data-large-font='true'] .home-grid[data-mode='grid'] { grid-template-columns:1fr; }
+.app[data-large-font='true'] .home-slot { grid-column:1 / -1; }
+@media (max-width:380px) { .home-grid[data-mode='grid'] { grid-template-columns:1fr; } .home-slot { grid-column:1 / -1; } }
+.settings-menu { display:grid; gap:0; border:1.5px solid #111; border-radius:10px; overflow:hidden; background:#fff; }
+.settings-menu button { text-align:left; padding:20px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:0; border-bottom:1px solid #ddd; background:transparent; cursor:pointer; min-width:0; }
+.settings-menu button:last-child { border-bottom:0; }
+.settings-menu button:active { background:#f0f0ec; }
+.settings-menu button strong { font-size:calc(15px * var(--font-base) * var(--font-scale)); }
+.ddl-card { grid-template-columns:calc(70px * var(--font-scale)) minmax(0,1fr) 20px; }
+.ddl-card__time, .log-row__due { min-width:0; }
+.ddl-card__time em, .log-row__due em { white-space:normal; overflow-wrap:anywhere; line-height:1.4; max-width:100%; }
+.ddl-card__time strong { max-width:100%; font-size:clamp(14px,calc(18px * var(--font-base) * var(--font-scale)),25px); }

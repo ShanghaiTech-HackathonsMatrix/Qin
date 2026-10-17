@@ -8,7 +8,7 @@
   "permissions": {"data": {"write": ["notice"], "read": ["notice"]}, "ui": {"slots": ["app.matrix.timeline.event"]}},
   "contributes": {
     "entityTypes": [{"name": "notice", "schema": {"type": "object", "properties": {"title": {"type": "string", "maxLength": 200}, "at": {"type": "number"}}, "required": ["title", "at"], "additionalProperties": false}}],
-    "views": [{"id": "summary", "title": "示例提醒事项", "kind": "widget", "requires": ["notice"]}],
+    "views": [{"id": "summary", "title": "示例提醒事项", "kind": "widget", "requires": ["notice"]}, {"id": "details", "title": "示例专属页面", "kind": "page", "requires": ["notice"]}],
     "consumesSlots": [{"slot": "app.matrix.timeline.event", "from": "notice", "map": {"title": "title", "startAt": "at"}}]
   }
 }

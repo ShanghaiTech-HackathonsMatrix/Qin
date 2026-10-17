@@ -340,8 +340,17 @@ interface ManifestContributes {
   views?: unknown[];
   commands?: Array<{ id: string; title: string }>;
   connectors?: Array<{ id: string; authProvider?: string; syncIntervalMin?: number }>;
+  accounts?: AccountContribution[];                         // Android外部网页登录，最多一个，见下文
 }
 ```
+
+### 当前宿主的外部账号与页面
+
+`AccountContribution` 由本包公开导出，形状为 `{id, title, loginUrl, authOrigins, dataOrigins}`。精确 HTTPS origin 可含端口、不含路径、通配符和 IP，每组 1–8 个。`permissions.auth.providers` 必须与账号 ID 一致，数据主机还须精确出现在 `net.domains`。完整 JSON 示例见 [插件指南](../../docs/plugins/README.md)。
+
+宿主负责打开官方网页、保存隔离 Profile 和携带会话请求；纯函数不接触 Cookie/密码，不增加异步登录 API。每插件一个账号；仅 Android 且 WebView 支持 MULTI_PROFILE 时可用，不支持 popup 或旧 WebView 共享会话回退。点击完成登录后仍由同步判断认证是否有效。
+
+外部 `contributes.views` 的每个视图必须有同 ID 的 `renders`。widget 可独立加入首页，page 可作专属页；按钮 `navigate` 可用自身 page ID 或 `home/timeline/timetable/courses/settings`，不能进入其他插件页面。示例提供 summary、details 两个实际渲染器。
 
 `entityTypes` 的形状**已被 `validateManifest` 校验**（必须是数组、每项 `{ name, schema }`、
 名字 snake_case 且不重复、`schema.type === 'object'`、字段类型拼写），
@@ -1449,7 +1458,9 @@ export const plan = (): RequestPlan => ({
 插件**读不到** `SyncReport`（它是宿主侧的对象），所以「退化」要发生在
 **宿主 / UI 那一层**：宿主看到 `ENOTFOUND` 就把那个功能藏起来，而不是给用户报错。
 
-#### 当前这个宿主的真实能力只有三项
+#### 早期内核宿主的三项基础能力
+
+> 本小节描述早期 `PluginHost` 内核基线。当前 Android 外部插件安装器已扩展声明式首页卡片、专属页面和宿主管理的独立网页账号；准确接入方法以 [外部插件指南](../../docs/plugins/README.md) 为准。这些扩展由宿主提供，不会给沙箱开放 DOM、Cookie 或任意原生调用。
 
 | 能力 | 对应做法 |
 |---|---|
@@ -1467,7 +1478,7 @@ export const plan = (): RequestPlan => ({
 不是「宿主内部有什么」。
 
 > **两条实用推论**：
-> 1. 需要某项能力时**先看上面这张表**，别先看 §4 的权限矩阵 —— 矩阵是规范，这张表是现状。
+> 1. 需要某项能力时，先核对所用宿主：上表是早期内核基线，§4 是规范，当前安装器实现见外部插件指南。
 > 2. 现在能写的插件类型很窄：**本地文档进来 → 解析 → 落库**，
 >    加上可选的网络请求。其余方向都缺实现。
 
@@ -1633,7 +1644,7 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 
 `.mtp` 校验、权限确认、QuickJS 纯函数、启停、卸载、代码与启用状态持久化已落地。`CursorStore` 已持久化游标。控件通过 `requires ⊆ permissions.data.read` 检查后选择记录；底层 `bus.read` 不单独查声明权限，属于宿主内部口，VM 无直接引用。
 
-外部包必须为 logic/connector/ui，entry 为 bundle.js；不开放 auth/secrets、notify、local文件导入、fs、db.raw、后台、模型、stream、remoteCode 或 first-party/declarative 包。详见 [安装与开发指南](../../docs/plugins/README.md)。内置插件不受这个外部包限制。
+外部包必须为 logic/connector/ui，entry 为 bundle.js；auth 仅开放上述声明式宿主账号，不开放 secrets、notify、local文件导入、fs、db.raw、后台、模型、stream、remoteCode 或 first-party/declarative 包。详见 [安装与开发指南](../../docs/plugins/README.md)。内置插件不受这个外部包限制。
 
 ### 尚未实现
 
@@ -1650,7 +1661,7 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 
 ### 已知边界
 
-- BB/GS/EAMS 登录 Cookie 在独立原生进程，外部插件无法获得其会话；通用 CapacitorHttp 的其他 Cookie 隔离尚未完成。
+- BB/GS/EAMS 登录 Cookie 在独立原生进程，外部插件无法获得其会话；外部声明账号路径使用独立 Profile，无账号的通用 CapacitorHttp 路径隔离尚未完成。
 - QuickJS 全局隐藏 eval/Function/SharedArrayBuffer/Atomics，但 VM 内动态代码构造并非全部消失；独立解释器与无宿主引用才是边界。
 - 域名匹配仍有两份实现，由跨包差分测试守护。
 - Android 原生桥可能对所有 frame 可见，因此本版不运行任意外部 iframe。

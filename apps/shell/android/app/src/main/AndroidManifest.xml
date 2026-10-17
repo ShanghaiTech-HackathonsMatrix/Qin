@@ -9,6 +9,12 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <receiver android:name=".MatrixWidgetProvider" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.TIME_SET"/><action android:name="android.intent.action.TIMEZONE_CHANGED"/><action android:name="android.intent.action.DATE_CHANGED"/></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/matrix_widget_info"/>
+        </receiver>
+        <service android:name=".MatrixWidgetViewsService" android:permission="android.permission.BIND_REMOTEVIEWS" android:exported="false"/>
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -26,6 +32,8 @@
 
         <activity android:name=".PlatformLoginActivity" android:process=":platformsessions"
             android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".ExternalLoginActivity" android:process=":externalaccounts" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar"/>
+        <provider android:name=".ExternalAccountProvider" android:authorities="${applicationId}.externalaccounts" android:process=":externalaccounts" android:exported="false"/>
         <provider android:name=".PlatformSessionProvider" android:authorities="${applicationId}.platformsessions"
             android:process=":platformsessions" android:exported="false" />
 
@@ -43,4 +51,5 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

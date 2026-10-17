@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+<LinearLayout
+    android:id="@+id/widget_course_row" android:layout_width="match_parent"
+    android:layout_height="wrap_content" android:orientation="vertical"
+    android:paddingTop="8dp" android:paddingBottom="8dp">
+    <TextView android:id="@+id/widget_course_title" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:maxLines="2" android:ellipsize="end"
+        android:textSize="14sp" android:textColor="@color/widget_primary" />
+    <TextView android:id="@+id/widget_course_when" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:paddingTop="2dp"
+        android:maxLines="1" android:textSize="12sp" android:textColor="@color/widget_accent" />
+    <TextView android:id="@+id/widget_course_where" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:paddingTop="2dp"
+        android:maxLines="1" android:ellipsize="end" android:textSize="12sp"
+        android:textColor="@color/widget_secondary" />
+</LinearLayout>
+</FrameLayout>

@@ -12,6 +12,7 @@
  */
 
 import { fail, ok, type PluginResult } from './errors.ts';
+import {validateAccounts,type AccountContribution} from './accounts.ts';
 import { ENTITY_TYPE_RE, FIELD_TYPES, type EntitySchema } from './schema.ts';
 import { validateViewContribution, type ViewContribution } from './ui.ts';
 import {
@@ -88,6 +89,7 @@ export interface ManifestEntityType {
 }
 
 export interface ManifestContributes {
+  accounts?:AccountContribution[];
   /**
    * 本插件写入的实体类型。
    *
@@ -446,6 +448,8 @@ export function validateManifest(
 
   // --- contributes
   validateContributes(raw.contributes, add);
+  // 内置会话沿用原路径；外部账号由宿主单独隔离。
+  if(isPlainObject(raw.contributes)&&raw.contributes.accounts!==undefined)validateAccounts(raw.contributes.accounts,isPlainObject(p)&&isPlainObject(p.auth)?p.auth.providers:undefined,isPlainObject(p)&&isPlainObject(p.net)?p.net.domains:undefined,add);
 
   // --- integrity
   if (raw.integrity !== undefined) {

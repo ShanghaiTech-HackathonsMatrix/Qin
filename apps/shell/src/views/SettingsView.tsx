@@ -1,7 +1,11 @@
+import {confirmAction} from '../components/ConfirmDialog';
 import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform/bootstrap';
 import type { AcademicService } from '../core/academic-service.ts';
 import ExternalPluginsView from './ExternalPluginsView';
+import ExternalAccountsView from './ExternalAccountsView';
+import WidgetSettings from './WidgetSettings';
+import type {Manifest} from '@matrix/plugin-api';
 import {openExternal} from '../platform/open-external';
 import {
   DENSITY_LABEL, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, LAYOUT_LABEL,
@@ -14,6 +18,7 @@ interface Props {
   onChange: (patch: Partial<AppSettings>) => void;
   onOpenDebug: () => void;
   onResetData: () => void;
+  onNavigate:(to:string)=>void;onAddHome:(manifest:Manifest)=>Promise<void>;
 }
 
 const APP_VERSION = '0.2.0-dev';
@@ -195,7 +200,7 @@ function TimetableSetup({ academic }: { academic: AcademicService }) {
   );
 }
 
-export default function SettingsView({ platform, settings, onChange, onOpenDebug, onResetData }: Props) {
+export default function SettingsView({ platform, settings, onChange, onOpenDebug, onResetData,onNavigate,onAddHome }: Props) {
   const [page,setPage]=useState<'root'|'account'|'general'|'plugins'|'runtime'>('root');
   const names={account:'用户与账号',general:'通用设置',plugins:'插件管理',runtime:'运行与关于'};
   const taps = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
@@ -216,16 +221,17 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
   return (
     <>
       {page==='root'?<div className="settings-menu">{(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}><strong>{names[key]}</strong><span>›</span></button>)}</div>:<button className="btn" onClick={()=>setPage('root')}>‹ 设置 · {names[page]}</button>}
-      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 使用邮箱登录；BB 与教务使用学校统一身份认证。登录凭证保留在手机本机。</p><button className="btn" onClick={()=>setPage('plugins')}>管理平台账号与登录</button></div>}
+      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 使用邮箱登录；BB 与教务使用学校统一身份认证。登录凭证保留在手机本机。</p><PlatformConnections academic={platform.academic} simulated={platform.academicSimulated}/><ExternalAccountsView platform={platform}/></div>}
       {page==='plugins'&&<>
       <div className="section-title">内置插件</div>
       <div className="conn-grid">
         <PlatformConnections academic={platform.academic} simulated={platform.academicSimulated} />
       </div>
       <details className="card"><summary>系统内置组件（随应用更新）</summary><p>ICS 导入 · Timeline 时间线 · 课表与作业投影。这些组件由应用管理。</p></details>
-      <ExternalPluginsView platform={platform}/>
+      <ExternalPluginsView platform={platform} onNavigate={onNavigate} onAddHome={onAddHome}/>
       </>}
       {page==='general'&&<>
+      <WidgetSettings platform={platform}/>
       <TimetableSetup academic={platform.academic} />
       <PeriodSettings academic={platform.academic}/>
       <ReminderSettings academic={platform.academic}/>
@@ -328,7 +334,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
         </div>
         <button
           className="btn btn--danger"
-          onClick={() => { if (confirm('确定清空全部数据？此操作不可撤销。')) onResetData(); }}
+          onClick={async () => { if (await confirmAction('确定清空全部数据？此操作不可撤销。')) onResetData(); }}
         >
           清空全部数据
         </button>

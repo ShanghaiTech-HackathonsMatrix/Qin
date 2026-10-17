@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent"
+    android:layout_height="match_parent" android:clipToOutline="true"
+    android:background="@drawable/matrix_widget_background">
+    <!-- 只有两个整页；页内使用静态行，不嵌套滚动列表。 -->
+    <ListView android:id="@+id/widget_pages" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:divider="@null"
+        android:scrollbars="none" android:overScrollMode="never"
+        android:listSelector="@android:color/transparent" android:cacheColorHint="@android:color/transparent"
+        android:fastScrollEnabled="false" android:scrollingCache="false"
+        android:contentDescription="@string/widget_pages_description" />
+</FrameLayout>

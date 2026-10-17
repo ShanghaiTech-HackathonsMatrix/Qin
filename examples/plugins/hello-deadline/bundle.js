@@ -10,7 +10,10 @@ globalThis.plugin = {
   },
   renders: {
     summary(ctx) {
-      return {type: 'card', children: [{type: 'text', text: '插件已在独立沙箱运行'}, {type: 'text', text: '本示例不联网；再次同步会更新同一条事项。'}]};
+      return {type: 'card', children: [{type: 'text', text: '插件已在独立沙箱运行'}, {type: 'text', text: '本示例不联网；再次同步会更新同一条事项。'}, {type: 'button', label: '查看专属页面', onPress: {kind: 'navigate', to: 'details'}}]};
+    },
+    details(ctx) {
+      return {type: 'card', children: [{type: 'text', text: '这是插件的独立页面，仍由宿主渲染 UiNode。'}, {type: 'button', label: '重新生成示例事项', onPress: {kind: 'sync'}}, {type: 'button', label: '返回首页', onPress: {kind: 'navigate', to: 'home'}}]};
     }
   }
 };

@@ -34,9 +34,10 @@ export function readPluginPackage(bytes:Uint8Array):ExternalPackage {
   const raw=JSON.parse(strFromU8(files['manifest.json']));
   const checked=validateManifest(raw);if(!checked.ok||!checked.manifest)throw new Error(checked.issues.map(i=>`${i.path}: ${i.message}`).join('；'));
   const manifest=checked.manifest;
+  if(manifest.permissions?.auth?.providers?.length&&!manifest.contributes?.accounts?.length)throw new Error('外部认证插件须声明 contributes.accounts');
   const version=negotiateApiVersion(manifest.apiVersion);if(!version.ok)throw new Error(version.message);
   if(manifest.kind==='first-party'||manifest.kind==='declarative'||manifest.entry!=='bundle.js'||manifest.capabilities?.remoteCode)throw new Error('外部插件必须为本地 bundle.js，不得声明内置身份或加载远程代码');
-  if(manifest.permissions?.auth?.providers?.length||manifest.permissions?.secrets||manifest.permissions?.fs==='sandbox'||manifest.permissions?.db?.raw||manifest.permissions?.background?.periodic||manifest.permissions?.background?.exact||manifest.permissions?.notify||manifest.permissions?.local||manifest.permissions?.llm?.local||manifest.permissions?.stream)throw new Error('此版本外部插件不支持会话凭证、文件导入、文件系统、原始数据库、通知、后台调度、模型或流式处理');
+  if(manifest.permissions?.secrets||manifest.permissions?.fs==='sandbox'||manifest.permissions?.db?.raw||manifest.permissions?.background?.periodic||manifest.permissions?.background?.exact||manifest.permissions?.notify||manifest.permissions?.local||manifest.permissions?.llm?.local||manifest.permissions?.stream)throw new Error('此版本外部插件不支持密钥、文件导入、文件系统、原始数据库、通知、后台调度、模型或流式处理');
   const source=strFromU8(files['bundle.js']);if(!source.trim())throw new Error('插件代码为空');
   return {manifest,source};
 }

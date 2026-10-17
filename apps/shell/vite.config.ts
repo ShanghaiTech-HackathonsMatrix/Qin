@@ -6,6 +6,7 @@ export default defineConfig({
   // Capacitor 从 https://localhost 加载本地资源，必须用相对路径
   base: '',
   build: {
+    rollupOptions:{input:{app:'index.html',widget:'widget-sync.html'}},
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',

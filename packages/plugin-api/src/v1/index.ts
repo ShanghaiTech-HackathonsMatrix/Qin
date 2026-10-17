@@ -11,6 +11,7 @@
 export * from './errors.ts';
 export * from './schema.ts';
 export * from './manifest.ts';
+export * from './accounts.ts';
 export * from './permissions.ts';
 export * from './contract.ts';
 export * from './ui.ts';

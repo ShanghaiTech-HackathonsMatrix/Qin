@@ -31,7 +31,7 @@ export class SandboxRuntime implements PluginRuntime {
       // JSON 桥在插件执行前捕获原生函数；VM 中不存在宿主对象引用。
       evaluate(`(()=>{const parse=JSON.parse,stringify=JSON.stringify,keys=Object.keys;
         Object.defineProperty(globalThis,'__qinBridge',{value:Object.freeze({
-          shape:p=>stringify(Object.fromEntries(['plan','next','onActivate','onSuspend','onDeactivate','parsers','renders','commands','slotValidators'].map(k=>[k,typeof p[k]==='function'?true:p[k]&&typeof p[k]==='object'?keys(p[k]):null]))),
+          shape:p=>stringify(Object.fromEntries(['plan','next','onActivate','onSuspend','onDeactivate','parsers','renders','commands','slotValidators'].map(k=>[k,typeof p[k]==='function'?true:p[k]&&typeof p[k]==='object'?keys(p[k]).filter(n=>typeof p[k][n]==='function'):null]))),
           call:(p,path,payload)=>{let fn=p;for(const k of parse(path))fn=fn[k];const out=fn(...parse(payload));if(out&&typeof out.then==='function')throw Error('插件函数必须同步');return stringify(out===undefined?null:out);}
         }),writable:false,configurable:false});})();
         globalThis.fetch=undefined;globalThis.XMLHttpRequest=undefined;globalThis.WebSocket=undefined;globalThis.Promise=undefined;globalThis.Date=undefined;globalThis.SharedArrayBuffer=undefined;globalThis.Atomics=undefined;Math.random=()=>{throw Error('请使用宿主提供的数据')};globalThis.eval=undefined;globalThis.Function=undefined;''`);
@@ -39,6 +39,7 @@ export class SandboxRuntime implements PluginRuntime {
       evaluate(`if(!globalThis.plugin||typeof globalThis.plugin!=='object')throw Error('缺少 globalThis.plugin');''`);
       const json=evaluate(`__qinBridge.shape(plugin)`);
       const shape=JSON.parse(json) as Record<string,true|string[]|null>;
+      for(const view of manifest.contributes?.views??[])if(!Array.isArray(shape.renders)||!shape.renders.includes(view.id))throw new Error(`视图 ${view.id} 缺少 renders 函数，无法启用插件`);
       const invoke=(path:string[],args:unknown[])=>{
         const payload=JSON.stringify(args);if(payload.length>6*1024*1024)throw new Error('插件输入超限');
         const result=evaluate(`__qinBridge.call(plugin,${JSON.stringify(JSON.stringify(path))},${JSON.stringify(payload)})`);

@@ -8,7 +8,9 @@ import {ExternalPlugins} from './external-plugins.ts';
 import {PluginHost} from './plugin-host.ts';
 import {createCore,MockTransport} from './index.ts';
 import {KvEntityBackend} from './kv-entity-backend.ts';
-import {normalizePermissions,type Manifest} from '@matrix/plugin-api';
+import {normalizePermissions,parseUiNode,type Manifest} from '@matrix/plugin-api';
+import {pageTarget,pluginRoute} from '../ui/navigation.ts';
+import {pluginCardId,parsePluginCard,normalizeHomeCards} from '../app/home-cards.ts';
 import {manifest as timelineManifest,timelinePlugin} from '../plugins/builtin/timeline/index.ts';
 import type {SecureStore} from '../platform/strategies/kv/types.ts';
 import {buildCatalog} from '../ui/catalog.ts';
@@ -44,11 +46,15 @@ test('MTP roundtrip；拒绝路径穿越、超展开、保留身份及未实现�
 test('沙箱限制初始化/函数死循环、内存耗尽，宿主对象不可达',async()=>{
   const runtime=new SandboxRuntime();
   for(const code of ['while(true){}','globalThis.plugin={plan(){while(true){}}};','const a=[];while(true)a.push("x".repeat(100000));']){
-    runtime.provide(manifest.id,code);const r=await runtime.load(manifest,normalizePermissions({}));
+    runtime.provide(manifest.id,code);const r=await runtime.load({...manifest,contributes:{...manifest.contributes,views:[]}},normalizePermissions({}));
     if(r.ok){assert.throws(()=>r.data.exports.plan!({trigger:'manual',now:1}));await runtime.unload(manifest.id);}else assert.equal(r.code,'EINTERNAL');
   }
   runtime.provide(manifest.id,`globalThis.plugin={plan(){return {requests:[],summary:[typeof window,typeof document,typeof process,typeof require,typeof fetch,typeof Capacitor,typeof Date,typeof Promise].join(',')}}}`);
-  const r=await runtime.load(manifest,normalizePermissions({}));assert.ok(r.ok);assert.equal(r.data.exports.plan!({trigger:'manual',now:1}).summary,Array(8).fill('undefined').join(','));await runtime.unload(manifest.id);
+  const r=await runtime.load({...manifest,contributes:{...manifest.contributes,views:[]}},normalizePermissions({}));assert.ok(r.ok);assert.equal(r.data.exports.plan!({trigger:'manual',now:1}).summary,Array(8).fill('undefined').join(','));await runtime.unload(manifest.id);
+});
+test('声明视图但缺少 renders 时拒绝加载',async()=>{
+  const runtime=new SandboxRuntime();runtime.provide(manifest.id,'globalThis.plugin={plan(){return {requests:[]}}}');
+  const r=await runtime.load(manifest,normalizePermissions({}));assert.equal(r.ok,false);
 });
 test('真实宿主：外部沙箱与内置共存，实体/槽/视图，停用、重启、卸载、重装',async()=>{
   const x=await setup();await x.manager.install(readPluginPackage(pack()));
@@ -56,7 +62,16 @@ test('真实宿主：外部沙箱与内置共存，实体/槽/视图，停用、
   const rows=x.host.bus.read(manifest.id,'notice',{owner:manifest.id});assert.ok(rows.ok);assert.equal(rows.data.length,1);
   const slots=x.host.bus.read(timelineManifest.id,'slot_entry',{owner:timelineManifest.id});assert.ok(slots.ok);assert.equal(slots.data.length,1);
   const exports=x.host.registry.exportsOf(manifest.id)!;assert.ok(exports.renders?.summary);
+  const ctx={instanceId:'test',props:{},records:[],ui:{},locale:'zh-CN',capabilities:[],now:1};
+  for(const view of ['summary','details'])assert.equal(parseUiNode(exports.renders![view]!(ctx)).ok,true);
+  assert.equal(pageTarget(x.host,manifest.id,'details'),pluginRoute(manifest.id,'details'));
+  assert.equal(pageTarget(x.host,manifest.id,'summary'),null,'widget不能冒充页面');
+  assert.equal(pageTarget(x.host,manifest.id,pluginRoute('org.other.plugin','details')),null,'不能路由到别人的页面');
+  const card=pluginCardId(manifest.id,'summary');
+  assert.deepEqual(parsePluginCard(card),{pluginId:manifest.id,viewId:'summary'});
+  assert.equal(normalizeHomeCards([{id:card,size:'full'},{id:card,size:'full'}],false).filter(c=>c.id===card).length,1);
   await x.manager.enable(manifest.id,false);assert.equal(x.host.registry.exportsOf(manifest.id),undefined);
+  assert.equal(pageTarget(x.host,manifest.id,'details'),null,'停用页面不可进入');
   assert.equal(buildCatalog(x.host).entries.some(e=>e.pluginId===manifest.id),false,'停用插件不渲染控件');
   assert.equal(buildCatalog(x.host).issues.some(e=>e.includes(manifest.id)),false,'停用不误报实现缺失');
   const restarted=await setup(x.kv);assert.equal(restarted.manager.list()[0].enabled,false);

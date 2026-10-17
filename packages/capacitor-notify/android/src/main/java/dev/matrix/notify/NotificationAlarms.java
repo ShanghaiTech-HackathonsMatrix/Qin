@@ -10,7 +10,7 @@ import org.json.*;
 import java.util.*;
 
 /** 同一进程内串行修改；提醒内容仅写入应用私有目录。 */
-final class NotificationAlarms {
+public final class NotificationAlarms {
     static final int LIMIT = 400;
     private static final String CHANNEL = "matrix_academic";
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("matrix-notifications", Context.MODE_PRIVATE); }
@@ -77,6 +77,19 @@ final class NotificationAlarms {
     }
     static synchronized void cancelAll(Context c) throws Exception {
         JSONObject data = read(c); JSONArray ids = new JSONArray(); data.keys().forEachRemaining(ids::put); cancel(c, ids);
+    }
+    /** 后台只替换学业命名空间，保留用户自定义任务提醒。 */
+    public static synchronized void reconcileAcademic(Context c,JSONArray desired)throws Exception {
+        JSONObject old=read(c);JSONArray obsolete=new JSONArray(),wanted=new JSONArray();Set<String> ids=new HashSet<>();
+        int reserved=0;for(Iterator<String> it=old.keys();it.hasNext();)if(!it.next().startsWith("academic#"))reserved++;
+        if(NotificationManagerCompat.from(c).areNotificationsEnabled())for(int i=0;i<desired.length()&&wanted.length()<Math.max(0,LIMIT-reserved);i++){
+            JSONObject item=desired.getJSONObject(i);String id=item.getString("id");
+            if(item.getDouble("at")<=System.currentTimeMillis()+1000)continue;
+            if(!id.startsWith("academic#")||!ids.add(id))throw new IllegalArgumentException("学业提醒 id 无效");
+            wanted.put(item);
+        }
+        for(Iterator<String> it=old.keys();it.hasNext();){String id=it.next();if(id.startsWith("academic#")&&!ids.contains(id))obsolete.put(id);}
+        cancel(c,obsolete);schedule(c,wanted);
     }
     static synchronized void restore(Context c) throws Exception {
         JSONObject data = read(c); long now = System.currentTimeMillis();

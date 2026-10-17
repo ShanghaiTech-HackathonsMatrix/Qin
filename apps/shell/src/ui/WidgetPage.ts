@@ -25,6 +25,7 @@ import { autoLayout, buildCatalog, type CatalogEntry } from './catalog';
 import type { LayoutStore, LayoutWidget } from './layout';
 import { recordsFor } from './record-selection';
 import { UiNodeView } from './render';
+import {pageTarget} from './navigation';
 
 
 export interface WidgetPageProps {
@@ -65,7 +66,7 @@ export function WidgetPage({ host, layout, onNavigate, onDataChanged }: WidgetPa
   const dispatch = useCallback(
     (action: Action, w: LayoutWidget): void => {
       if (action.kind === 'navigate') {
-        onNavigate(action.to);
+        const target=pageTarget(host,w.pluginId,action.to);if(target)onNavigate(target);else setNotice('未声明的插件页面');
         return;
       }
       if (action.kind === 'setUi') {
@@ -173,7 +174,7 @@ export function PageView({
   const dispatch = useCallback(
     (action: Action): void => {
       if (action.kind === 'navigate') {
-        onNavigate(action.to);
+        const target=pageTarget(host,pluginId,action.to);if(target)onNavigate(target);else setNotice('未声明的插件页面');
         return;
       }
       if (action.kind === 'setUi') {

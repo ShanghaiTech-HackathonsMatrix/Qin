@@ -33,7 +33,7 @@ export interface LessonOverride {
   title?: string; teacher?: string; location?: string; weekday?: number; first?: number; last?: number;
   weeks?: number[]; note?: string; hidden?: boolean;
 }
-export interface AssignmentOverride { title?: string; dueAt?: number | null; note?: string; done?: boolean; completedAt?:number; hidden?: boolean }
+export interface AssignmentOverride { title?: string; dueAt?: number | null; note?: string; done?: boolean; needsReview?:boolean; completedAt?:number; hidden?: boolean }
 export interface UserCorrections { lessons: Record<string, LessonOverride>; assignments: Record<string, AssignmentOverride> }
 export const DEFAULT_PERIODS: Period[] = [
   ['08:15', '09:00', '上午'], ['09:10', '09:55', '上午'], ['10:15', '11:00', '上午'], ['11:10', '11:55', '上午'],

@@ -15,6 +15,7 @@
 
 import type { Task } from '../domain/types';
 import { dayKeyOf } from './date-keys.ts';
+import { compareTasks } from './task-status.ts';
 
 export interface DdlItem {
   id: string;
@@ -38,6 +39,7 @@ export interface DdlItem {
   completedAt?: number;
   description?: string;
   url?: string;
+  courseUrl?: string;
   /** 真实任务才有的回指：点开进编辑表单而不是演示详情 */
   taskId?: string;
   /**
@@ -48,6 +50,8 @@ export interface DdlItem {
   provider?: string;
   /** 平台上的课程名。核心课程表里没有这些课，所以单独带一份 */
   courseTitle?: string;
+  /** 用户手动改过名称，紧凑显示也尊重该名称。 */
+  titleEdited?: boolean;
 }
 
 /** 平台标识 → 界面上显示的名字 */
@@ -102,7 +106,7 @@ export function ddlsFromTasks(tasks: readonly Task[], allSelfMade = false): DdlI
  */
 export function pickUrgent(items: readonly DdlItem[], now: number): DdlItem[] {
   if (items.length === 0) return [];
-  const sorted = [...items].sort((a, b) => a.dueAt - b.dueAt);
+  const sorted = items.filter(item=>!item.done).sort(compareTasks);
 
   const todayKey = dayKeyOf(now);
   const todays = sorted.filter((item) => dayKeyOf(item.dueAt) === todayKey);
@@ -128,7 +132,7 @@ export function pickUrgent(items: readonly DdlItem[], now: number): DdlItem[] {
 
 /** 任务日志用：按截止时间升序 */
 export function sortByDue(items: readonly DdlItem[]): DdlItem[] {
-  return [...items].sort((a, b) => a.dueAt - b.dueAt);
+  return [...items].sort(compareTasks);
 }
 
 // ---------------------------------------------------------------- 平台作业
@@ -218,6 +222,7 @@ export function platformDdls(
       out.push({
         id: assignment.id,
         title: assignment.title,
+        titleEdited: fix?.title !== undefined,
         courseId: null,
         dueAt: assignment.dueAt,
         source: PROVIDER_LABEL[snapshot.provider] ?? snapshot.provider,
@@ -226,7 +231,8 @@ export function platformDdls(
         ...(fix?.note !== undefined && fix.note !== '' ? { description: fix.note } : {}),
         provider: snapshot.provider,
         url: original.url,
-        needsReview:original.needsReview,
+        courseUrl:snapshot.courses.find(c=>c.id===assignment.courseId)?.url,
+        needsReview:assignment.needsReview,
         completedAt:fix?.completedAt??original.completedAt,
         courseTitle: snapshot.courses.find((c) => c.id === assignment.courseId)?.title ?? '',
       });

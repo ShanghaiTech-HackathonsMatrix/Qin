@@ -14,7 +14,12 @@
  *     也可能是旧版本写进去的，未知 id 与重复项必须在进视图之前就过滤掉。
  */
 
-export type HomeCardId = 'hero' | 'next-class' | 'schedule' | 'ddl' | 'atlas' | 'widgets';
+export type HomeCardId = 'hero' | 'next-class' | 'schedule' | 'ddl' | 'atlas' | 'widgets' | `plugin:${string}`;
+export const pluginCardId=(pluginId:string,viewId:string):HomeCardId=>`plugin:${encodeURIComponent(pluginId)}:${encodeURIComponent(viewId)}`;
+export function parsePluginCard(id:string):{pluginId:string;viewId:string}|null{
+  const m=/^plugin:([^:]{1,300}):([^:]{1,300})$/.exec(id);if(!m)return null;
+  try{const pluginId=decodeURIComponent(m[1]!),viewId=decodeURIComponent(m[2]!);return /^[a-z0-9][a-z0-9._-]*$/.test(pluginId)&&/^[a-z0-9][a-z0-9_-]*$/.test(viewId)?{pluginId,viewId}:null;}catch{return null;}
+}
 export type HomeCardSize = 'full' | 'half';
 
 export interface HomeCardConfig {
@@ -90,7 +95,7 @@ export function normalizeHomeCards(value: unknown, demo = true): HomeCardConfig[
   for (const raw of value) {
     if (typeof raw !== 'object' || raw === null) continue;
     const id = (raw as { id?: unknown }).id;
-    if (typeof id !== 'string' || !IDS.has(id)) continue;
+    if (typeof id !== 'string' || (!IDS.has(id)&&!parsePluginCard(id))) continue;
     if (seen.has(id as HomeCardId)) continue;
     seen.add(id as HomeCardId);
 
@@ -98,7 +103,7 @@ export function normalizeHomeCards(value: unknown, demo = true): HomeCardConfig[
     const size = (raw as { size?: unknown }).size;
     out.push({
       id: id as HomeCardId,
-      size: meta.fullOnly === true || size !== 'half' ? 'full' : 'half',
+      size: meta?.fullOnly === true || size !== 'half' ? 'full' : 'half',
     });
   }
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_pages_description">向上查看今日剩余课程，向下返回 DDL；单击联网刷新，双击条目打开</string>
+    <string name="widget_refresh_description">联网同步课程和作业</string>
+    <string name="widget_previous_description">显示 DDL</string>
+    <string name="widget_next_description">显示今日课程</string>
+    <string name="widget_swipe_hint">点两侧切页 · DDL 可上下滚动</string>
+</resources>

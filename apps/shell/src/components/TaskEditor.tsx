@@ -141,7 +141,7 @@ export default function TaskEditor({ task, courses, onClose, onSave, onDelete, o
             {task && (
               <button
                 className="btn btn--danger"
-                onClick={() => { if (confirm('删除这个条目？')) onDelete(task.id); }}
+                onClick={() => onDelete(task.id)}
               >
                 删除
               </button>

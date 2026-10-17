@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import {connectWidget} from './android-widget.ts';
 import { MatrixNotify } from '@matrix/capacitor-notify';
 import { fail, ok } from '@matrix/plugin-api';
 import type { PluginExports } from '@matrix/plugin-api';
@@ -17,6 +18,7 @@ import { AcademicTransport, academicSessionFor, academicNativeAvailable, Platfor
 import { AcademicService } from '../core/academic-service.ts';
 import { SandboxRuntime } from '../core/sandbox-runtime.ts';
 import { ExternalPlugins } from '../core/external-plugins.ts';
+import {ExternalAccountRegistry,ExternalAccountTransport} from '../core/external-accounts.ts';
 import {PersonalSchedule} from '../core/personal-schedule.ts';
 import { sandboxModule } from './sandbox-module.ts';
 import { CapacitorTransport } from '../core/transport.ts';
@@ -149,13 +151,14 @@ export async function bootstrap(): Promise<Platform> {
       · 其它           → 不传 transport，用默认实现
   */
   const academicNative = academicNativeAvailable();
+  const externalAccounts=new ExternalAccountRegistry();
   const simulated = SIMULATE_ACADEMIC && !academicNative;
   const academicTransport = SIMULATE_ACADEMIC
     ? new SimulatedAcademicTransport(new CapacitorTransport())
     : academicNative ? new AcademicTransport(new CapacitorTransport()) : null;
 
   const core = createCore({
-    ...(academicTransport !== null ? {transport: academicTransport} : {}),
+    transport:new ExternalAccountTransport(academicTransport??new CapacitorTransport(),externalAccounts),
     vaultBackend: kv.value,
     auditSink: auditStore.push,
     gateway: { config: {
@@ -196,7 +199,7 @@ export async function bootstrap(): Promise<Platform> {
   const plugins = new PluginHost({
     externalRuntime:sandbox,
     maxSteps: 605,
-    sessionFor: academicSessionFor,
+    sessionFor:id=>academicSessionFor(id)??externalAccounts.sessionFor(id),
     core,
     modules: new Map<string, PluginExports>([
       [ICS_PLUGIN_ID, icsImporter],
@@ -289,7 +292,7 @@ export async function bootstrap(): Promise<Platform> {
     const result=await plugins.install(manifest,{allowReservedPrefix:true});
     if(!result.ok) warnings.push(`学业插件安装失败：${result.message}`);
   }
-  const externalPlugins=new ExternalPlugins(plugins,dataKv,sandbox,domains=>core.net.setAllowlist([...new Set([...loadAllowlist(),...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname),...domains])]));
+  const externalPlugins=new ExternalPlugins(plugins,dataKv,sandbox,domains=>core.net.setAllowlist([...new Set([...loadAllowlist(),...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname),...domains])]),externalAccounts);
   try{await externalPlugins.restore();warnings.push(...externalPlugins.warnings);}catch(e){warnings.push(`外部插件恢复失败：${e instanceof Error?e.message:String(e)}`);}
   const restoredEntities = await plugins.restoreData();
   if (!restoredEntities.ok) {
@@ -332,7 +335,7 @@ export async function bootstrap(): Promise<Platform> {
     }
   } catch(e) {warnings.push(`学业数据恢复失败：${e instanceof Error?e.message:String(e)}`);}
 
-  return {
+  const platform:Platform={
     personal:await (async()=>{const personal=new PersonalSchedule(dataKv,notify);try{await personal.init();}catch(e){warnings.push(`个人日程恢复失败：${String(e)}`);}return personal;})(),
     externalPlugins,
     academic,
@@ -350,6 +353,8 @@ export async function bootstrap(): Promise<Platform> {
     warnings,
     overrides,
   };
+  try{await connectWidget(platform);}catch(e){warnings.push(`挂件初始化失败：${String(e)}`);}
+  return platform;
 }
 
 /**

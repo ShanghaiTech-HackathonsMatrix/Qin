@@ -2,11 +2,13 @@
 import { PLUGIN_IDS, PROVIDERS, defaultSettings, validateSettings, type Provider, type TimetableSettings, type UserCorrections, type LessonOverride, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
 import { SNAPSHOT, type AcademicSnapshot } from '../plugins/builtin/academic/connectors.ts';
 import { explainSyncError, splitSyncErrors } from './sync-errors.ts';
+import {academicReminders} from '../platform/academic-reminders.ts';
 import type { PluginHost } from './plugin-host.ts';
 import type { SecureStore } from '../platform/strategies/kv/types.ts';
 import type { NotifyPort } from './notify/port.ts';
 
 export class AcademicService {
+  guard:<T>(fn:()=>Promise<T>)=>Promise<T>=fn=>fn();
   settings = defaultSettings();
   corrections: UserCorrections = { lessons:{}, assignments:{} };
   snapshots: AcademicSnapshot[] = [];
@@ -30,7 +32,7 @@ export class AcademicService {
   subscribe(fn:()=>void) { this.listeners.add(fn);return ()=>{this.listeners.delete(fn);}; }
   private changed() { for(const fn of this.listeners) fn(); }
   private serial<T>(fn:()=>Promise<T>):Promise<T> {
-    const task=this.tail.then(async()=>{this.busy=true;this.changed();try{return await fn();}finally{this.busy=false;this.changed();}});
+    const task=this.tail.then(async()=>{this.busy=true;this.changed();try{return await this.guard(fn);}finally{this.busy=false;this.changed();}});
     this.tail=task.catch(()=>undefined);return task;
   }
   async init() {
@@ -43,6 +45,21 @@ export class AcademicService {
     this.readSnapshots();
     for(const p of PROVIDERS)if(this.enabled[p]===false)await this.host.registry.deactivate(PLUGIN_IDS[p]);
     await this.rebuild();
+  }
+  refreshBackground(){return this.serial(async()=>{});}
+  async importBackground(snapshots:AcademicSnapshot[]) {
+    const previous=this.snapshots;
+    const merged=PROVIDERS.flatMap(p=>{
+      const old=previous.find(s=>s.provider===p),next=snapshots.find(s=>s.provider===p);
+      return next&&(!old||next.syncedAt>old.syncedAt)?[next]:old?[old]:[];
+    });
+    if(merged.every(s=>previous.includes(s)))return;
+    projectAcademic(merged,this.settings,this.corrections);
+    for(const s of merged){const result=this.host.bus.emit(PLUGIN_IDS[s.provider],{type:SNAPSHOT,id:'current',data:{json:JSON.stringify(s)}});if(!result.ok)throw new Error(result.message);}
+    const flushed=await this.host.bus.flush();if(!flushed.ok)throw new Error(flushed.message);
+    this.snapshots=merged;this.migrateLessonCorrections(previous);
+    try{await this.persist();await this.rebuild();}
+    catch(e){this.readSnapshots();throw e;}
   }
   private readSnapshots() {
     this.snapshots=PROVIDERS.flatMap(provider=>{
@@ -137,7 +154,16 @@ export class AcademicService {
     if(edited) await this.kv.set('academic.periods-edited','1');
   }); }
   editLesson(id:string,patch:LessonOverride) { return this.saveCorrection('lessons',id,{note:patch.note??''}); }
-  editAssignment(id:string,patch:AssignmentOverride) { return this.saveCorrection('assignments',id,{...patch,...(patch.done===undefined?{}:{completedAt:patch.done?Date.now():0})}); }
+  editAssignment(id:string,patch:AssignmentOverride) {
+    return this.serial(async()=>{
+    const original=this.snapshots.flatMap(s=>s.assignments).find(a=>a.id===id);
+    const old=this.corrections.assignments[id];
+    const wasDone=old?.done??(original?['submitted','graded'].includes(original.status):false);
+    const next=structuredClone(this.corrections);
+    next.assignments[id]={...old,...patch,...(patch.done===undefined||patch.done===wasDone?{}:{completedAt:patch.done?Date.now():0})};
+    await this.applyConfig(this.settings,next);
+    });
+  }
   resetLesson(id:string) { return this.serial(async()=>{const next=structuredClone(this.corrections);delete next.lessons[id];await this.applyConfig(this.settings,next);}); }
   resetAssignment(id:string) { return this.serial(async()=>{const next=structuredClone(this.corrections);delete next.assignments[id];await this.applyConfig(this.settings,next);}); }
   private saveCorrection(kind:'lessons'|'assignments',id:string,patch:LessonOverride|AssignmentOverride) {return this.serial(async()=>{
@@ -189,11 +215,8 @@ export class AcademicService {
     if(!this.settings.reminders || await this.notify.checkPermission()!=='granted') {
       await this.notify.cancel(pending.filter(id=>id.startsWith('academic#')));this.reminderStatus=this.settings.reminders?'通知权限未开启':'未开启';return;
     }
-    const entities=projectAcademic(this.snapshots.filter(s=>this.enabled[s.provider]!==false),this.settings,this.corrections).filter(e=>e.type==='academic_event' && !e.data.done);
-    const now=Date.now();
-    const items=entities.map(e=>({id:`academic#${e.id}`,at:Number(e.data.startAt)-(e.data.type==='session'?this.settings.lessonLead:this.settings.dueLead)*60000,
-      title:`${e.data.type==='session'?'即将上课':'作业截止提醒'} · ${e.data.title}`,body:String(e.data.detail??''),payload:'academic'}))
-      .filter(e=>e.at>now).sort((a,b)=>a.at-b.at).slice(0,Math.min(400,Math.max(0,this.notify.capabilities().maxPending-pending.filter(id=>!id.startsWith('academic#')).length)));
+    const items=academicReminders(this.snapshots,this.settings,this.corrections,this.enabled,Date.now())
+      .slice(0,Math.max(0,this.notify.capabilities().maxPending-pending.filter(id=>!id.startsWith('academic#')).length));
     try {
       const wanted=new Set(items.map(e=>e.id));await this.notify.cancel(pending.filter(id=>id.startsWith('academic#')&&!wanted.has(id)));
       await this.notify.schedule(items);

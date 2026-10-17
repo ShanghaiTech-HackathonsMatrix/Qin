@@ -1125,3 +1125,16 @@ button.log-row:active { background: #f0f0ec; }
 .ddl-card__time, .log-row__due { min-width:0; }
 .ddl-card__time em, .log-row__due em { white-space:normal; overflow-wrap:anywhere; line-height:1.4; max-width:100%; }
 .ddl-card__time strong { max-width:100%; font-size:clamp(14px,calc(18px * var(--font-base) * var(--font-scale)),25px); }
+
+/* 弹层、表单与状态标签的浅色主题对比度。 */
+:root { --bg:#f7f7f3; --fg-faint:#66665f; --ok:#17623f; --warn:#76500a; --bad:#a92732; }
+.sheet { background:var(--bg-1); color:var(--fg); max-height:90dvh; overflow:auto; }
+.field, .conn__field input, .conn__field select { background:var(--bg-1); color:var(--fg); }
+.field::placeholder, input::placeholder, textarea::placeholder { color:var(--fg-faint); opacity:1; }
+.field-label,.lbl { color:var(--fg-dim); }
+.seg button[data-active='true'] { background:var(--accent); color:#fff; }
+button:disabled { opacity:.55; }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid #305d9c; outline-offset:3px; }
+.confirm-backdrop { z-index:10000; }
+.confirm-dialog { max-width:480px; margin:auto; padding:22px; }
+.confirm-dialog p { white-space:pre-wrap; line-height:1.6; }

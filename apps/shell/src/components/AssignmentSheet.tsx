@@ -11,6 +11,7 @@
 
 import { useState } from 'react';
 import { openExternal } from '../platform/open-external';
+import {taskTarget} from '../platform/widget-data';
 
 export interface AssignmentDraft {
   id: string;
@@ -19,6 +20,8 @@ export interface AssignmentDraft {
   dueAt: number | null;
   note: string;
   done: boolean;
+  needsReview: boolean;
+  provider: string;
   /** 平台原文，用来对照「我改了什么」 */
   dueText: string;
   courseTitle: string;
@@ -47,7 +50,7 @@ export function toLocalInput(ms: number | null): string {
 interface Props {
   draft: AssignmentDraft;
   busy: boolean;
-  onSave: (patch: { title?: string; dueAt?: number | null; note?: string; done?: boolean }) => void;
+  onSave: (patch: { title?: string; dueAt?: number | null; note?: string; done?: boolean; needsReview?:boolean }) => void;
   onReset: () => void;
   onClose: () => void;
 }
@@ -58,14 +61,17 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
   const [title, setTitle] = useState(draft.title);
   const [due, setDue] = useState(toLocalInput(draft.dueAt));
   const [note, setNote] = useState(draft.note);
-  const [done, setDone] = useState(draft.done);
+  const [confirmation, setConfirmation] = useState(draft.done?'done':draft.needsReview?'review':'open');
+  const target=taskTarget(draft);
 
   const submit = () => {
-    const patch: { title?: string; dueAt?: number | null; note?: string; done?: boolean } = {};
+    const patch: { title?: string; dueAt?: number | null; note?: string; done?: boolean; needsReview?:boolean } = {};
     if (title !== draft.title) patch.title = title;
     if (due !== toLocalInput(draft.dueAt)) patch.dueAt = due === '' ? null : new Date(due).getTime();
+    if(patch.dueAt!==undefined&&patch.dueAt!==null&&!Number.isFinite(patch.dueAt)){setError('请选择有效的截止时间');return;}
     if (note !== draft.note) patch.note = note;
-    if (done !== draft.done) patch.done = done;
+    patch.done = confirmation==='done';
+    patch.needsReview = confirmation==='review';
     onSave(patch);
   };
 
@@ -90,8 +96,7 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
         </div>
 
         <div className="conn__actions">
-          {draft.url && <button type="button" className="btn" onClick={()=>void open(draft.url!)}>打开作业网页 ↗</button>}
-          {draft.courseUrl && <button type="button" className="btn" onClick={()=>void open(draft.courseUrl!)}>打开 BB 课程 ↗</button>}
+          {target && <button type="button" className="btn" onClick={()=>void open(target)}>{draft.provider==='blackboard'?'打开 BB 课程 ↗':'打开 Gradescope 作业 ↗'}</button>}
         </div>
         {error && <p role="alert">{error}</p>}
         <label className="field-label">
@@ -117,10 +122,12 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
           <textarea className="field" value={note} maxLength={1000} rows={2} onChange={(e) => setNote(e.target.value)} />
         </label>
 
-        <label className="assign-check">
-          <input type="checkbox" checked={done} onChange={(e) => setDone(e.target.checked)} />
-          已完成（只记在本机）
+        <label className="field-label">个人确认状态
+          <select className="field" value={confirmation} onChange={e=>setConfirmation(e.target.value)}>
+            <option value="review">待确认</option><option value="open">确认未完成 / 未提交</option><option value="done">确认已完成 / 已提交</option>
+          </select>
         </label>
+        <p className="assign-hint">仅修改本机记录，不会向平台提交作业。恢复平台数据可撤销个人确认。</p>
 
         <div className="sheet__actions">
           <button type="button" className="btn" disabled={busy} onClick={onReset}>恢复平台数据</button>

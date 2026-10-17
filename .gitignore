@@ -4,3 +4,7 @@ node_modules
 /private-fixtures/
 /dist-apk/
 *.apk
+
+# 构建产物（历史已跟踪文件仍保留基线，不随业务修改提交）
+/apps/shell/dist/
+/packages/capacitor-notify/android/build/

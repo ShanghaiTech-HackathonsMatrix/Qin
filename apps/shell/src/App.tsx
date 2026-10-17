@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { EVENT_KIND_LABEL, type Course, type Task } from './domain/types';
+import { type Course, type Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
 import { saveOverrides, type Overrides } from './platform/overrides';
 import type { ResolutionReport } from './platform/strategies/types';
@@ -22,6 +22,7 @@ import WeekStrip from './components/WeekStrip';
 import TimetableView from './views/TimetableView';
 import { buildWeekDays, lessonCount, teachingWeek } from './app/timetable';
 import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, type DdlItem } from './app/ddl-items';
+import {compactDdlLabels} from './app/ddl-labels';
 import AssignmentSheet, { type AssignmentDraft } from './components/AssignmentSheet';
 import PersonalEventSheet from './components/PersonalEventSheet';
 import LessonSheet from './components/LessonSheet';
@@ -31,6 +32,7 @@ import {TASK_CATEGORIES,taskCategory,compareTasks,type TaskCategory} from './app
 import {
   HOME_CARD_META,
   HOME_CARD_ORDER,
+  pluginCardId,parsePluginCard,
   defaultHomeCards,
   normalizeHomeCards,
   pickDropIndex,
@@ -40,11 +42,16 @@ import {
 } from './app/home-cards';
 import DebugPanel from './components/DebugPanel';
 import { LayoutStore } from './ui/layout';
-import { WidgetPage } from './ui/WidgetPage';
+import { WidgetPage,PageView } from './ui/WidgetPage';
+import {parsePluginRoute} from './ui/navigation';
+import {buildCatalog} from './ui/catalog';
+import type {Manifest} from '@matrix/plugin-api';
 import { SLOT_NAME } from './plugins/builtin/timeline/constants';
 import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
 import type { CourseCard, CourseDraft } from './core/course-cards';
 import { MatrixNotify } from '@matrix/capacitor-notify';
+import {confirmAction} from './components/ConfirmDialog';
+import {AndroidWidget,widgetAvailable} from './platform/android-widget';
 
 type Tab = 'home' | 'timeline' | 'timetable' | 'courses' | 'settings';
 const DEMO_MODE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1';
@@ -91,6 +98,8 @@ export default function App() {
     const requested = new URLSearchParams(window.location.search).get('page');
     return requested === 'timeline' || requested === 'timetable' || requested === 'courses' || requested === 'settings' ? requested : 'home';
   });
+  const [pluginPage,setPluginPage]=useState<{pluginId:string;viewId:string}|null>(null);
+  const [,setPluginTick]=useState(0);
   const [debugOpen, setDebugOpen] = useState(false);
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
   /** 右下角「＋」弹出的快速添加面板 */
@@ -252,7 +261,7 @@ export default function App() {
   }, [platform, reload, flash]);
 
   const deleteTask = useCallback(async (id: string) => {
-    setEditor({ open: false, task: null });
+    if(!await confirmAction('删除这个任务？此操作无法撤销。'))return;
 
     if (DEMO_DATA !== null) {
       setDemoExtraTasks((prev) => prev.filter((p) => p.id !== id));
@@ -262,12 +271,13 @@ export default function App() {
         return next;
       });
       flash('已删除 · 演示数据，仅本次会话有效');
+      setEditor({open:false,task:null});
       return;
     }
 
     if (!platform) return;
-    await platform.store.deleteTask(id);
-    await reload();
+    try{await platform.store.deleteTask(id);await reload();setEditor({open:false,task:null});}
+    catch(e){flash(`删除失败：${String(e)}`);}
   }, [platform, reload, flash]);
 
   /**
@@ -370,9 +380,9 @@ export default function App() {
 
   const deleteCourse = useCallback(async (id: string) => {
     if (!platform) return;
-    await platform.store.deleteCourse(id);
-    await reload();
-  }, [platform, reload]);
+    try { await platform.store.deleteCourse(id); await reload(); }
+    catch(e) { flash(`删除失败：${e instanceof Error?e.message:String(e)}`); }
+  }, [platform, reload, flash]);
 
   const updateSettings = useCallback(async (patch: Partial<AppSettings>) => {
     if (!platform) return;
@@ -861,6 +871,8 @@ const TAB_ICONS = {
       dueAt: merged.dueAt,
       note: fix?.note ?? '',
       done: fix?.done ?? (merged.status === 'submitted' || merged.status === 'graded'),
+      needsReview:merged.needsReview??false,
+      provider:merged.provider,
       dueText: merged.dueText,
       courseTitle: snapshot?.courses.find((c) => c.id === merged.courseId)?.title ?? '',
       source: PROVIDER_LABEL[merged.provider] ?? merged.provider,
@@ -871,7 +883,7 @@ const TAB_ICONS = {
   }, [assignmentId, rawAssignment, platform, academicTick]);
 
   const saveAssignment = useCallback(async (id: string, patch: {
-    title?: string; dueAt?: number | null; note?: string; done?: boolean;
+    title?: string; dueAt?: number | null; note?: string; done?: boolean; needsReview?:boolean;
   }) => {
     if (platform === null) return;
     try {
@@ -926,8 +938,7 @@ const TAB_ICONS = {
   const urgentDdls = useMemo(() => pickUrgent(ddlItems, nowMs), [ddlItems, nowMs]);
 
   /**
-   * 任务日志的展示顺序：没做完的按截止时间排前面，交过的沉到最后。
-   * `sort` 是稳定排序，所以两组内部仍然按截止时间。
+   * 所有分类共用截止时间升序；同时间按稳定标识排序，无期限置后。
    */
   const [taskFilters,setTaskFilters]=useState<TaskCategory[]>(['open','overdue']);
   const logDdls = useMemo(
@@ -954,10 +965,18 @@ const TAB_ICONS = {
     const source = DEMO_DATA !== null ? demoExtraTasks : visibleTasks;
     return source.filter((t) => t.status !== 'dismissed' && !listed.has(t.id));
   }, [ddlItems, visibleTasks, demoExtraTasks]);
-  const localState=(t:Task)=>({dueAt:t.dueAt,done:t.status==='done',completedAt:t.updatedAt});
+  const localState=(t:Task)=>({id:t.id,title:t.title,dueAt:t.dueAt,done:t.status==='done',completedAt:t.updatedAt});
   const undatedTasks=allUndatedTasks.filter(t=>taskFilters.includes(taskCategory(localState(t),nowMs))).sort((a,b)=>compareTasks(localState(a),localState(b),nowMs));
-  const allUndatedPlatform=(platform?.academic.snapshots??[]).flatMap(s=>s.assignments.map(a=>({...a,...platform?.academic.corrections.assignments[a.id]})).filter(a=>a.dueAt===null && !a.hidden && (!platform?.academic.settings.selectedCourses[s.provider] || platform.academic.settings.selectedCourses[s.provider]!.includes(a.courseId))).map(a=>({...a,done:a.done??['submitted','graded'].includes(a.status)})));
-  const undatedPlatform=allUndatedPlatform.filter(a=>taskFilters.includes(taskCategory(a,nowMs)));
+  const allUndatedPlatform=useMemo(()=>(platform?.academic.snapshots??[]).filter(s=>platform?.academic.enabled[s.provider]!==false).flatMap(s=>s.assignments.map(a=>({...a,...platform?.academic.corrections.assignments[a.id],titleEdited:platform?.academic.corrections.assignments[a.id]?.title!==undefined,courseTitle:s.courses.find(c=>c.id===a.courseId)?.title})).filter(a=>a.dueAt===null && !a.hidden && (!platform?.academic.settings.selectedCourses[s.provider] || platform.academic.settings.selectedCourses[s.provider]!.includes(a.courseId))).map(a=>({...a,done:a.done??['submitted','graded'].includes(a.status)}))),[platform,academicTick]);
+  const compactLabels=useMemo(()=>compactDdlLabels([...ddlItems,...allUndatedPlatform]),[ddlItems,allUndatedPlatform]);
+  const compactTitle=(item:{id:string;title:string})=>compactLabels.get(item.id)?.title??item.title;
+  const compactMeta=(item:DdlItem)=>ddlMeta({...item,courseTitle:compactLabels.get(item.id)?.course||item.courseTitle},courseFor(item.courseId??''));
+  const undatedPlatform=allUndatedPlatform.filter(a=>taskFilters.includes(taskCategory(a,nowMs))).sort(compareTasks);
+  const taskRows=[
+    ...logDdls.map(ddl=>({id:ddl.id,title:compactTitle(ddl),dueAt:ddl.dueAt,done:ddl.done,needsReview:ddl.needsReview,meta:compactMeta(ddl),open:()=>openDdl(ddl),task:visibleTasks.find(t=>t.id===(ddl.taskId??ddl.id)),platform:ddl.provider!==undefined})),
+    ...undatedPlatform.map(a=>({id:a.id,title:compactTitle(a),dueAt:a.dueAt,done:a.done,needsReview:a.needsReview,meta:`${compactLabels.get(a.id)?.course||a.courseTitle||'平台任务'} · 未提供截止时间`,open:()=>setAssignmentId(a.id),task:undefined,platform:true})),
+    ...undatedTasks.map(t=>({...localState(t),needsReview:false,meta:courseFor(t.courseId??'')||'本机任务',open:()=>setEditor({open:true,task:t}),task:t,platform:false})),
+  ].sort(compareTasks);
   const categoryCounts=Object.fromEntries(TASK_CATEGORIES.map(c=>[c.id,[...ddlItems,...allUndatedTasks.map(localState),...allUndatedPlatform].filter(t=>taskCategory(t,nowMs)===c.id).length]));
   /** 首页与「日程」页共用同一份条目，避免两处各写一遍映射 */
   const scheduleEntries = useMemo<ScheduleEntry[]>(() => {
@@ -993,8 +1012,8 @@ const TAB_ICONS = {
     const fromDated: ScheduleEntry[] = ddlItems.map((ddl) => ({
       id: ddl.id,
       at: ddl.dueAt,
-      title: ddl.title,
-      meta: ddlMeta(ddl, courseFor(ddl.courseId ?? '')),
+      title: compactTitle(ddl),
+      meta: compactMeta(ddl),
       kind: ddl.provider !== undefined || ddl.selfMade !== true ? ('ddl' as const) : ('task' as const),
       state: ddl.done === true
         ? ('done' as const)
@@ -1003,7 +1022,7 @@ const TAB_ICONS = {
     }));
     const personal=platform?.personal.events.flatMap(e=>occurrences(e,nowMs-86400000,nowMs+14*86400000))??[];
     return [...fromClasses, ...fromDated,...personal];
-  }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic,platform,academicTick]);
+  }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic,platform,academicTick,compactLabels]);
   /**
    * 日程排「今天 0 点 → 未来两周」。
    *
@@ -1032,8 +1051,31 @@ const TAB_ICONS = {
 
   // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
   const goTab = useCallback((to: string) => {
+    const route=parsePluginRoute(to);
+    if(route){setPluginPage(route);return;}
+    setPluginPage(null);
     setTab(to === 'timeline' || to === 'timetable' || to === 'courses' || to === 'settings' ? to : 'home');
   }, []);
+  useEffect(()=>platform?.plugins.registry.on(()=>setPluginTick(t=>t+1)),[platform]);
+  const addPluginHome=async(manifest:Manifest)=>{
+    const incoming=(manifest.contributes?.views??[]).filter(v=>v.kind==='widget').map(v=>({id:pluginCardId(manifest.id,v.id),size:'full' as const}));
+    await updateSettings({homeCards:normalizeHomeCards([...homeCards,...incoming.filter(c=>!homeCards.some(old=>old.id===c.id))])});
+  };
+
+  useEffect(()=>{
+    if(!platform||!widgetAvailable())return;
+    const consume=()=>void AndroidWidget.consumeTap().then(({id,page})=>{
+      if(id===null&&page!=='timetable')return;setPluginPage(null);
+      if(page==='timetable'){setTab('timetable');return;}
+      setTab('timeline');
+      if(!id)return;
+      const task=tasks.find(t=>t.id===id);
+      if(task)setEditor({open:true,task});
+      else if(platform.academic.snapshots.some(s=>s.assignments.some(a=>a.id===id)))setAssignmentId(id);
+    }).catch(()=>{});
+    consume();window.addEventListener('matrix-widget',consume);
+    return()=>window.removeEventListener('matrix-widget',consume);
+  },[platform,tasks]);
 
   // ---------------------------------------------------------------- 渲染
 
@@ -1066,6 +1108,12 @@ const TAB_ICONS = {
   }
 
   const p = boot.platform;
+  const pluginCards=buildCatalog(p.plugins).entries.filter(e=>e.view.kind==='widget'&&!e.pluginId.startsWith('app.matrix.'));
+  const cardMeta=(id:HomeCardId)=>{
+    const parsed=parsePluginCard(id);if(!parsed)return HOME_CARD_META[id];
+    const entry=pluginCards.find(e=>e.pluginId===parsed.pluginId&&e.view.id===parsed.viewId);
+    return {name:entry?.view.title??'已停用或卸载的插件卡片',hint:parsed.pluginId};
+  };
 
   /**
    * 首页每张卡片的内容。
@@ -1074,6 +1122,8 @@ const TAB_ICONS = {
    * 半宽只有一百多像素，横排的标题加箭头会挤成两行，只能改成竖排摘要。
    */
   const renderHomeCard = (id: HomeCardId, size: HomeCardSize) => {
+    const parsed=parsePluginCard(id);
+    if(parsed)return <PageView key={id} host={p.plugins} {...parsed} onNavigate={goTab} onDataChanged={()=>void reload()}/>;
     switch (id) {
       case 'hero':
         return (
@@ -1171,12 +1221,12 @@ const TAB_ICONS = {
                     </span>
                     <span className="ddl-card__body">
                       <strong>
-                        {ddl.title}
+                        {compactTitle(ddl)}
                         {ddl.selfMade === true && (
                           <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
                         )}
                       </strong>
-                      <small>{ddlMeta(ddl, courseFor(ddl.courseId ?? ''))}</small>
+                      <small>{compactMeta(ddl)}</small>
                     </span>
                     {size === 'full' && <span className="ddl-card__arrow" aria-hidden="true">↗</span>}
                   </button>
@@ -1288,7 +1338,7 @@ const TAB_ICONS = {
             data-editing={homeEditing}
           >
             {visibleHomeCards.map((card, index) => {
-              const meta = HOME_CARD_META[card.id];
+              const meta = cardMeta(card.id);
               /*
                 半宽卡是「占一列」的：它后面那张如果不是半宽，这一行的另一列就空着。
                 编辑态里把这个空位画成虚线框，用户才知道为什么旁边少了半张 ——
@@ -1376,104 +1426,16 @@ const TAB_ICONS = {
               <button className="btn btn--sm" aria-pressed={taskFilters.length===4} onClick={()=>setTaskFilters(TASK_CATEGORIES.map(c=>c.id))}>全部 {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length}</button>
               {TASK_CATEGORIES.map(c=><button key={c.id} className="btn btn--sm" aria-pressed={taskFilters.includes(c.id)} onClick={()=>setTaskFilters(prev=>prev.includes(c.id)?prev.filter(v=>v!==c.id):[...prev,c.id])}>{c.label} {categoryCounts[c.id]}</button>)}
             </div>
-            {logDdls.length+undatedTasks.length+undatedPlatform.length === 0 ? (
-              <div className="home-empty">
-                当前筛选下没有任务。可切换顶部分类，或新建任务。
-              </div>
-            ) : (
-              <div className="log-list">
-                {logDdls.map((ddl) => {
-                  const overdue = ddl.dueAt < nowMs;
-                  const task = visibleTasks.find((t) => t.id === (ddl.taskId ?? ddl.id));
-                  return (
-                    <SwipeRow
-                      key={ddl.id}
-                      open={swipedId === ddl.id}
-                      onOpenChange={(next) => setSwipedId(next ? ddl.id : null)}
-                      actions={ddl.provider !== undefined
-                        ? [
-                            { label: '编辑', onClick: () => setAssignmentId(ddl.id) },
-                            { label: '隐藏', danger: true, onClick: () => void hideAssignment(ddl.id) },
-                          ]
-                        : task === undefined
-                          ? []
-                          : [
-                              { label: '编辑', onClick: () => setEditor({ open: true, task }) },
-                              { label: '删除', danger: true, onClick: () => void deleteTask(task.id) },
-                            ]}
-                    >
-                    <button
-                      className="log-row"
-                      data-overdue={overdue && ddl.done !== true}
-                      data-done={ddl.done === true}
-                      onClick={() => openDdl(ddl)}
-                    >
-                      <span className="log-row__due">
-                        <b>{formatDue(ddl.dueAt)}</b>
-                        <em>{ddlStateLabel(ddl, overdue)}</em>
-                      </span>
-                      <span className="log-row__body">
-                        <strong>
-                          {ddl.title}
-                          {ddl.selfMade === true && (
-                            <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
-                          )}
-                        </strong>
-                        <small>{ddlMeta(ddl, courseFor(ddl.courseId ?? ''))}</small>
-                      </span>
-                      <span className="log-row__arrow" aria-hidden="true">↗</span>
-                    </button>
-                    </SwipeRow>
-                  );
-                })}
-              </div>
-            )}
-
-            {undatedPlatform.length>0 && <section><h3>平台未提供截止时间</h3>{undatedPlatform.map(a=><button className="log-row" key={a.id} onClick={()=>setAssignmentId(a.id)}><span>{a.title}</span><small>{a.done?'已提交 / 已完成':a.needsReview?'待确认':'无期限'}</small></button>)}</section>}
-            {/* 无截止时间的本机任务也参与顶部状态筛选。 */}
-            {undatedTasks.length > 0 && (
-              <>
-                <div className="quest-section__head quest-section__head--spaced">
-                  <h2>自建任务</h2>
-                  <span className="quest-section__ornament">
-                    {DEMO_MODE ? '仅本次会话' : `${undatedTasks.length} 条`}
-                  </span>
-                </div>
-                <div className="log-list">
-                  {undatedTasks.map((t) => (
-                    <SwipeRow
-                      key={t.id}
-                      open={swipedId === t.id}
-                      onOpenChange={(next) => setSwipedId(next ? t.id : null)}
-                      actions={[
-                        { label: '编辑', onClick: () => setEditor({ open: true, task: t }) },
-                        { label: '删除', danger: true, onClick: () => void deleteTask(t.id) },
-                      ]}
-                    >
-                    <button
-                      className="log-row"
-                      onClick={() => setEditor({ open: true, task: t })}
-                    >
-                      <span className="log-row__due">
-                        <b>{t.dueAt === null ? '—' : formatDue(t.dueAt)}</b>
-                        <em>{t.status==='done'?'已完成':t.dueAt === null ? '无期限' : EVENT_KIND_LABEL[t.kind]}</em>
-                      </span>
-                      <span className="log-row__body">
-                        <strong>
-                          {t.title}
-                          <span className="tag-self">自建</span>
-                        </strong>
-                        <small>
-                          {t.dueAt === null ? '手动添加 · 待补充截止时间' : `${EVENT_KIND_LABEL[t.kind]} · 不进 DDL 列表`}
-                        </small>
-                      </span>
-                      <span className="log-row__arrow" aria-hidden="true">↗</span>
-                    </button>
-                    </SwipeRow>
-                  ))}
-                </div>
-              </>
-            )}
+            {taskRows.length===0?<div className="home-empty">当前筛选下没有任务。可切换顶部分类，或新建任务。</div>:<div className="log-list">
+              {taskRows.map(row=><SwipeRow key={row.id} open={swipedId===row.id} onOpenChange={v=>setSwipedId(v?row.id:null)}
+                actions={[{label:'编辑',onClick:row.open},...(row.platform?[{label:'隐藏',danger:true,onClick:()=>void hideAssignment(row.id)}]:row.task?[{label:'删除',danger:true,onClick:()=>void deleteTask(row.id)}]:[])]}>
+                <button className="log-row" data-overdue={taskCategory(row,nowMs)==='overdue'} data-done={row.done===true} onClick={row.open}>
+                  <span className="log-row__due"><b>{row.dueAt===null?'—':formatDue(row.dueAt)}</b><em>{TASK_CATEGORIES.find(c=>c.id===taskCategory(row,nowMs))?.label}</em></span>
+                  <span className="log-row__body"><strong>{row.title}{!row.platform&&<span className="tag-self">自建</span>}</strong><small>{row.meta}</small></span>
+                  <span className="log-row__arrow" aria-hidden="true">↗</span>
+                </button>
+              </SwipeRow>)}
+            </div>}
           </>
         )}
 
@@ -1561,6 +1523,7 @@ const TAB_ICONS = {
 
         {tab === 'settings' && (
           <SettingsView
+            onNavigate={goTab} onAddHome={addPluginHome}
             platform={p}
             settings={settings}
             onChange={(patch) => void updateSettings(patch)}
@@ -1570,6 +1533,7 @@ const TAB_ICONS = {
         )}
         {tab==='courses'&&<button className="btn btn--primary" onClick={()=>setPersonalEditor({event:null})}>＋ 自定义日程</button>}
         {personalEditor&&<PersonalEventSheet event={personalEditor.event} service={p.personal} close={()=>setPersonalEditor(null)}/>}
+        {pluginPage&&<div className="sheet-backdrop" onClick={()=>setPluginPage(null)}><section className="sheet" onClick={e=>e.stopPropagation()}><div className="sheet__head"><h2>插件页面</h2><button className="btn" onClick={()=>setPluginPage(null)}>返回</button></div>{p.plugins.registry.get(pluginPage.pluginId)?.state==='active'&&p.plugins.registry.get(pluginPage.pluginId)?.manifest.contributes?.views?.some(v=>v.id===pluginPage.viewId&&v.kind==='page')?<PageView key={`${pluginPage.pluginId}/${pluginPage.viewId}`} host={p.plugins} {...pluginPage} onNavigate={goTab} onDataChanged={()=>void reload()}/>:<p>页面不存在或插件已停用</p>}</section></div>}
         {lessonId&&<LessonSheet id={lessonId} service={p.academic} close={()=>setLessonId(null)}/>}
       </div>
 
@@ -1661,8 +1625,8 @@ const TAB_ICONS = {
               <button className="btn btn--sm" onClick={() => setCardPicker(false)}>关闭</button>
             </div>
             <div className="quick__menu">
-              {HOME_CARD_ORDER.map((id) => {
-                const meta = HOME_CARD_META[id];
+              {[...HOME_CARD_ORDER,...pluginCards.map(e=>pluginCardId(e.pluginId,e.view.id))].map((id) => {
+                const meta = cardMeta(id);
                 const on = homeCards.some((c) => c.id === id);
                 return (
                   <button

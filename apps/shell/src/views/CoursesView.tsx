@@ -1,3 +1,4 @@
+import {confirmAction} from '../components/ConfirmDialog';
 /**
  * 「课程」页。
  *
@@ -100,9 +101,9 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
                 </button>
                 <button
                   className="btn btn--sm btn--danger"
-                  onClick={() => {
+                  onClick={async () => {
                     if (
-                      confirm(
+                      await confirmAction(
                         `删除课程「${c.title}」？挂在其下的条目不会被删除，但会失去课程归属。`,
                       )
                     ) {

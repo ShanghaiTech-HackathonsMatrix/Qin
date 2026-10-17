@@ -1,3 +1,4 @@
+import {confirmAction} from './ConfirmDialog';
 import {useState} from 'react';
 import type {PersonalEvent,PersonalSchedule} from '../core/personal-schedule';
 const stamp=(t:number)=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
@@ -22,6 +23,6 @@ export default function PersonalEventSheet({event,service,close}:{event:Personal
     {repeat==='weekly'&&<label>重复至<input className="field" type="date" required value={until} onChange={e=>setUntil(e.target.value)}/></label>}
     <label>提前提醒（分钟，留空不提醒）<input className="field" type="number" min="0" max="43200" value={lead} onChange={e=>setLead(e.target.value)}/></label>
     <p className="faint">{service.status}</p>{error&&<p role="alert">{error}</p>}
-    <button className="btn btn--primary" disabled={busy}>保存日程</button>{event&&<button className="btn btn--danger" disabled={busy} type="button" onClick={()=>{if(confirm('删除整个日程（包括重复日程）？'))void run(()=>service.remove(event.id));}}>删除日程</button>}
+    <button className="btn btn--primary" disabled={busy}>保存日程</button>{event&&<button className="btn btn--danger" disabled={busy} type="button" onClick={async()=>{if(await confirmAction('删除整个日程（包括重复日程）？'))void run(()=>service.remove(event.id));}}>删除日程</button>}
   </form></div>;
 }

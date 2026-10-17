@@ -19,8 +19,10 @@ import { PageView, WidgetPage } from './ui/WidgetPage';
 import { PLUGIN_ID as TIMELINE_PLUGIN_ID } from './plugins/builtin/timeline/constants';
 import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
 import type { CourseCard, CourseDraft } from './core/course-cards';
+import AcademicView from './views/AcademicView';
+import { MatrixNotify } from '@matrix/capacitor-notify';
 
-type Tab = 'home' | 'timeline' | 'courses' | 'settings';
+type Tab = 'home' | 'timeline' | 'academic' | 'courses' | 'settings';
 
 type Boot =
   | { status: 'loading' }
@@ -70,6 +72,16 @@ export default function App() {
   useEffect(() => { void start(); }, [start]);
 
   const platform = boot.status === 'ready' ? boot.platform : null;
+  useEffect(() => {
+    if (!platform?.notify.isSupported()) return;
+    const consume = () => { void MatrixNotify.consumeTap?.().then(r => {
+      if (r.payload === 'academic') setTab('academic');
+    }).catch(() => undefined); };
+    consume();
+    window.addEventListener('matrix-notification', consume);
+    document.addEventListener('visibilitychange', consume);
+    return () => { window.removeEventListener('matrix-notification', consume); document.removeEventListener('visibilitychange', consume); };
+  }, [platform]);
 
   // ---------------------------------------------------------------- 数据
 
@@ -250,6 +262,7 @@ export default function App() {
   const resetAllData = useCallback(async () => {
     if (!platform) return;
     await platform.store.clearAll();
+    await platform.academic.clearData();
     await reload();
     flash('数据已清空');
   }, [platform, reload, flash]);
@@ -269,7 +282,7 @@ export default function App() {
 
   // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
   const goTab = useCallback((to: string) => {
-    setTab(to === 'timeline' || to === 'courses' || to === 'settings' ? to : 'home');
+    setTab(to === 'timeline' || to === 'academic' || to === 'courses' || to === 'settings' ? to : 'home');
   }, []);
 
   // ---------------------------------------------------------------- 渲染
@@ -309,7 +322,7 @@ export default function App() {
       <div className="topbar">
         <div>
           <div className="topbar__title">
-            {tab === 'timeline' ? '时间线' : tab === 'courses' ? '课程' : '设置'}
+            {tab === 'home' ? '首页' : tab === 'timeline' ? '时间线' : tab === 'academic' ? '课表与作业' : tab === 'courses' ? '课程' : '设置'}
           </div>
           <div className="topbar__sub">
             {p.store.backend} · {p.kv.encrypted ? '密钥受系统保护' : '密钥未受保护'}
@@ -353,6 +366,8 @@ export default function App() {
           />
         )}
 
+        {tab === 'academic' && <AcademicView service={p.academic} onChanged={reload} />}
+
         {tab === 'courses' && (
           <>
             <CoursesView
@@ -394,6 +409,7 @@ export default function App() {
         {([
           ['home', '首页'],
           ['timeline', `时间线${openCount ? ` (${openCount})` : ''}`],
+          ['academic', '课表作业'],
           ['courses', '课程'],
           ['settings', '设置'],
         ] as const).map(([id, label]) => (

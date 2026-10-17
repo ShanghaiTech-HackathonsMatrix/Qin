@@ -185,6 +185,8 @@ export interface CapabilityToken {
 // ---------------------------------------------------------------- 传输层
 
 export interface TransportRequest {
+  /** 宿主绑定的原生会话路由；不是 HTTP 头，不提供给插件。 */
+  session?: string | null;
   url: string;
   method: string;
   headers: Record<string, string>;

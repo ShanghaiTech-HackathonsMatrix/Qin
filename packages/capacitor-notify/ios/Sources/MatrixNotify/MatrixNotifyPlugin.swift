@@ -43,7 +43,8 @@ public class MatrixNotifyPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "schedule", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancel", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelAll", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "pending", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "pending", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "consumeTap", returnType: CAPPluginReturnPromise)
     ]
 
     private let notImplemented = "MatrixNotify 的 iOS 实现尚未开始（预留骨架）"
@@ -85,4 +86,5 @@ public class MatrixNotifyPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func pending(_ call: CAPPluginCall) {
         call.resolve(["ids": [String]()])
     }
+    @objc func consumeTap(_ call: CAPPluginCall) { call.resolve(["payload": NSNull()]) }
 }

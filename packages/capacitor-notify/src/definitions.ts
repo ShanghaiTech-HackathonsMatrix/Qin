@@ -52,6 +52,8 @@ export interface MatrixNotifyPlugin {
   cancelAll(): Promise<void>;
   /** 系统里当前真的挂着的 id，用于对账 */
   pending(): Promise<{ ids: string[] }>;
+  /** 读取并消费最近一次通知点击；旧桥可缺省。 */
+  consumeTap?(): Promise<{ payload: string | null }>;
 }
 
 /** Capacitor 里注册用的名字，必须与原生侧 `@CapacitorPlugin(name = ...)` 一致 */

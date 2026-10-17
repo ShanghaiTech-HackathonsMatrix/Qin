@@ -1,0 +1,160 @@
+import { strict as assert } from 'node:assert';
+import { test } from 'node:test';
+import { anchors, parseDeadline } from './html.ts';
+import { gradescopeCourses, gradescopeAssignments, blackboardCourses, blackboardAssignment, eamsSelection, eamsTimetable } from './parsers.ts';
+import { defaultSettings, ENTRY, PLUGIN_IDS, parseWeeks, expandLessons, type AcademicCourse } from './model.ts';
+import { createConnector, connectorManifest } from './connectors.ts';
+import { ACADEMIC_ID, projectionManifest, projectionPlugin } from './projection.ts';
+import { AcademicService } from '../../../core/academic-service.ts';
+import { AcademicTransport, academicSessionFor } from '../../../core/academic-transport.ts';
+import { createCore, MockTransport } from '../../../core/index.ts';
+import { PluginHost } from '../../../core/plugin-host.ts';
+import { KvEntityBackend } from '../../../core/kv-entity-backend.ts';
+import type { SecureStore } from '../../../platform/strategies/kv/types.ts';
+import type { NotifyPort, ScheduledNotification } from '../../../core/notify/port.ts';
+import { manifest as timelineManifest, timelinePlugin, PLUGIN_ID as TIMELINE_ID } from '../timeline/index.ts';
+
+// 全部为合成样本，不含真实学生、课程或会话。
+const account='<h2>Fall 2026</h2><a href="/courses/11"><h3>示例课程</h3></a><a href="https://other.example/courses/99">外站</a>';
+const course:AcademicCourse={id:'gradescope:11',title:'示例课程',code:'',provider:'gradescope',term:'Fall 2026',url:'https://www.gradescope.com/courses/11'};
+const entry='addInput(form,"ids","999"); semesterCalendar({value:"100"});';
+const table=(bits='0101',room='教室A')=>`<script>
+activity = new TaskActivity("t", "示例教师", "c", "示例课程(CS0)", "r", "${room}", "${bits}");
+index = 0 * unitCount + 0; index = 0 * unitCount + 1; index = 6 * unitCount + 3; index = 0 * unitCount + 4;
+</script>`;
+
+test('Gradescope 从最近学期标题取年份，拒绝外站与空链接',()=>{
+  const courses=gradescopeCourses(account+'<h2>Spring 2027</h2><a href="/courses/12">新课</a>',ENTRY.gradescope);
+  assert.deepEqual(courses.map(c=>c.term),['Fall 2026','Spring 2027']);
+  assert.equal(anchors('<a>空</a><a href="#x">锚</a><a href="javascript:go()">脚本</a>',ENTRY.gradescope).length,0);
+});
+test('Gradescope 按日期列读取正常与补交截止时间，未提交优先',()=>{
+  const html='<table><tr><td><a href="/courses/11/assignments/2">作业</a></td><td class="dueDate"><time datetime="2026-10-20T23:00:00+08:00"></time><time datetime="2026-10-21T23:00:00+08:00"></time></td><td>Not Submitted 0 / 10</td></tr></table>';
+  const [a]=gradescopeAssignments(html,course,'');
+  assert.equal(a.status,'not_submitted');assert.equal(a.dueAt,Date.parse('2026-10-20T23:00:00+08:00'));
+  assert.equal(a.lateDueAt,Date.parse('2026-10-21T23:00:00+08:00'));
+});
+test('模糊时区不猜测；秋季跨年、中文星期和非法日期',()=>{
+  assert.equal(parseDeadline('Jan 5 at 11:59PM','Fall 2026',''),null);
+  assert.equal(parseDeadline('Jan 5 at 11:59PM','Fall 2026','Asia/Shanghai'),Date.parse('2027-01-05T23:59:00+08:00'));
+  assert.equal(parseDeadline('2026年10月20日 星期二 下午11:59','','Asia/Shanghai'),Date.parse('2026-10-20T23:59:00+08:00'));
+  assert.equal(parseDeadline('2026年2月30日 下午11:59','','Asia/Shanghai'),null);
+});
+test('平台网页格式：BB launcher 的 id；GS 带时区日期排除发布时间',()=>{
+  const courses=blackboardCourses('<a href=" /webapps/blackboard/execute/launcher?type=Course&amp;id=_123_1&amp;url=">示例</a>',ENTRY.blackboard);
+  assert.equal(courses[0].id,'blackboard:_123_1');
+  assert.throws(()=>blackboardCourses('<a href="/webapps/other?id=_123_1">无关</a>',ENTRY.blackboard));
+  const html='<table><tr><th><a href="/courses/11/assignments/2">作业</a></th><td><time class="submissionTimeChart--releaseDate" datetime="2026-10-01 08:00:00 +0800"></time><time class="submissionTimeChart--dueDate" datetime="2026-10-20 23:59:00 +0800"></time><time class="submissionTimeChart--dueDate" datetime="2026-10-21 12:00:00 +0800"></time></td></tr></table>';
+  const [a]=gradescopeAssignments(html,course,'');
+  assert.equal(a.dueAt,Date.parse('2026-10-20T23:59:00+08:00'));
+  assert.equal(a.lateDueAt,Date.parse('2026-10-21T12:00:00+08:00'));
+});
+test('BB 保留稳定作业ID并读取中文截止时间与未提交状态',()=>{
+  const c={...course,id:'blackboard:_1_1',provider:'blackboard' as const};
+  const a=blackboardAssignment('<h1 class="hideoff">打开快速链接</h1><h1 id="pageTitleHeader">复查提交历史记录: 练习</h1>截止日期：2026年10月20日 星期二 下午11:59 未提交','https://elearning.shanghaitech.edu.cn:8443/webapps/assignment/uploadAssignment?content_id=_2_1',c,'');
+  assert.equal(a?.title,'练习');
+  assert.equal(a?.dueAt,Date.parse('2026-10-20T23:59:00+08:00'));assert.equal(a?.status,'not_submitted');
+});
+test('教务动态参数、断续周、周末及不连续节次；错误页明确失败',()=>{
+  assert.equal(eamsSelection(entry,'').body,'setting.kind=std&startWeek=&semester.id=100&ids=999');
+  assert.equal(eamsSelection(entry,'101').semester,'101');
+  const p=eamsTimetable(table(),'100');
+  assert.equal(p.courses.length,1);assert.equal(p.rules.length,3);
+  assert.deepEqual(p.rules.map(r=>[r.weekday,r.first,r.last,r.weeks]),[[1,1,2,[1,3]],[1,5,5,[1,3]],[7,4,4,[1,3]]]);
+  assert.throws(()=>eamsTimetable('error.courseTable.unknown','100'));
+  assert.throws(()=>eamsTimetable(table('110'),'100'));
+  assert.ok(eamsTimetable(table().replace('示例教师',',； '),'100').rules.every(r=>r.teacher===''));
+});
+test('人工周次与逐节时间展开；未确认第一周不生成上课提醒',()=>{
+  const rules=eamsTimetable(table(),'100').rules,s=defaultSettings(),r=rules[0];
+  assert.deepEqual(parseWeeks('1-8单周'),[1,3,5,7]);assert.deepEqual(parseWeeks('2-8双周,10'),[2,4,6,8,10]);
+  assert.equal(expandLessons([r],s,{lessons:{},assignments:{}}).length,0);
+  s.weekOne='2026-10-12';s.periods[0]={...s.periods[0],start:'08:00'};
+  const events=expandLessons([r],s,{lessons:{[r.id]:{weeks:[2],note:'个人备注'}},assignments:{}});
+  assert.equal(events[0].startAt,Date.parse('2026-10-19T08:00:00+08:00'));assert.match(events[0].detail,/个人备注/);
+  assert.throws(()=>expandLessons([r],{...s,weekOne:'2026-10-13'},{lessons:{},assignments:{}}));
+});
+
+class MemoryKv implements SecureStore {
+  encrypted=false;map=new Map<string,string>();
+  async get(k:string){return this.map.get(k)??null;} async set(k:string,v:string){this.map.set(k,v);}
+  async remove(k:string){this.map.delete(k);} async keys(){return [...this.map.keys()];}
+}
+class Notifications implements NotifyPort {
+  backend='test';items=new Map<string,ScheduledNotification>();fail=false;
+  async probe(){} isSupported(){return true;} capabilities(){return {exact:true,maxPending:400,lostOnReboot:false,requiresPermission:true};}
+  async checkPermission(){return 'granted' as const;} async requestPermission(){return 'granted' as const;}
+  async schedule(items:readonly ScheduledNotification[]){if(this.fail)throw new Error('系统排程失败');for(const i of items)this.items.set(i.id,i);}
+  async cancel(ids:readonly string[]){for(const id of ids)this.items.delete(id);} async cancelAll(){this.items.clear();}
+  async pending(){return [...this.items.keys()];}
+}
+async function setup(kv=new MemoryKv()){
+  const transport=new MockTransport();
+  const host=new PluginHost({core:createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.eams).hostname]}}}),
+    dataBackend:new KvEntityBackend(kv),modules:new Map([[PLUGIN_IDS.eams,createConnector('eams')],[ACADEMIC_ID,projectionPlugin],[TIMELINE_ID,timelinePlugin]])});
+  for(const m of [timelineManifest,connectorManifest('eams'),projectionManifest]){
+    const result=await host.install(m,{allowReservedPrefix:true});assert.equal(result.ok,true,JSON.stringify(result));
+  }
+  await host.restoreData();
+  const notify=new Notifications(),service=new AcademicService({host,kv,notify,available:true,login:async()=>({completed:true}),clear:async()=>{}});
+  await service.init();
+  const queue=(body=table())=>{transport.queue(ENTRY.eams,{status:200,body:entry}).queue('https://eams.shanghaitech.edu.cn/eams/courseTableForStd!courseTable.action',{status:200,body});};
+  const entities=()=>{const r=host.bus.read(ACADEMIC_ID,'academic_event',{owner:ACADEMIC_ID});assert.ok(r.ok);return r.data;};
+  return {kv,transport,host,notify,service,queue,entities};
+}
+test('真实宿主：重复同步不重复、备注跨周次变化和重启保留、清空删除投影',async()=>{
+  const x=await setup();await x.service.saveSettings({...x.service.settings,weekOne:'2026-10-12'});
+  x.queue();await x.service.sync('eams');const id=x.service.snapshots[0].rules[0].id;
+  await x.service.editLesson(id,{note:'保留备注'});assert.equal(x.entities().length,6);
+  x.queue();await x.service.sync('eams');assert.equal(x.entities().length,6);
+  x.queue(table('01001','新教室'));await x.service.sync('eams');
+  assert.equal(x.service.corrections.lessons[x.service.snapshots[0].rules[0].id].note,'保留备注');
+  assert.ok(x.entities().some(e=>String(e.data.detail).includes('新教室')));
+  const restarted=await setup(x.kv);assert.equal(restarted.entities().length,6);
+  assert.ok(restarted.entities().some(e=>String(e.data.detail).includes('保留备注')));
+  await restarted.service.saveSettings({...restarted.service.settings,selectedCourses:{eams:[]}});assert.equal(restarted.entities().length,0);
+  await restarted.service.clearData();assert.equal(restarted.entities().length,0);assert.equal(restarted.service.snapshots.length,0);
+});
+test('真实宿主：网络或HTML解析失败不覆盖旧快照',async()=>{
+  const x=await setup();x.queue();await x.service.sync('eams');const old=JSON.stringify(x.service.snapshots);
+  x.transport.queue(ENTRY.eams,{status:0,throw:'断网'});await assert.rejects(x.service.sync('eams'));assert.equal(JSON.stringify(x.service.snapshots),old);
+  x.queue('error.courseTable.unknown');await assert.rejects(x.service.sync('eams'));assert.equal(JSON.stringify(x.service.snapshots),old);
+});
+test('真实宿主：通知故障不否认数据同步成功；非法设置不覆盖有效配置',async()=>{
+  const x=await setup();x.notify.fail=true;await x.service.saveSettings({...x.service.settings,reminders:true});
+  x.queue();await x.service.sync('eams');assert.match(x.service.statuses.eams!,/同步成功/);assert.match(x.service.reminderStatus,/排程失败/);
+  const old=JSON.stringify(x.service.settings);await assert.rejects(x.service.saveSettings({...x.service.settings,weekOne:'2026-10-13'}));assert.equal(JSON.stringify(x.service.settings),old);
+});
+test('平台会话由宿主ID绑定，凭证不能发往其他origin或端口',async()=>{
+  const fallback=new MockTransport();let calls=0;
+  const transport=new AcademicTransport(fallback,{login:async()=>({completed:true}),clear:async()=>{},request:async req=>{calls++;return {status:200,body:'ok',headers:{},url:req.url,followedRedirects:false};}});
+  assert.equal(academicSessionFor('third.party'),undefined);assert.equal(academicSessionFor(PLUGIN_IDS.eams),'academic:eams');
+  const req={url:ENTRY.eams,method:'GET' as const,headers:{},connectTimeoutMs:1000,readTimeoutMs:1000,session:'academic:eams'};
+  await transport.request(req);assert.equal(calls,1);
+  for(const url of ['https://other.example/','https://eams.shanghaitech.edu.cn:8443/'])await assert.rejects(transport.request({...req,url}));
+  assert.equal(calls,1);
+});
+
+test('真实宿主：目录 GET 限流后继续同一页，不重跑或漏页',async()=>{
+  const transport=new MockTransport();
+  const core=createCore({transport,gateway:{config:{allowlist:['www.gradescope.com'],rateCapacity:1,rateRefillPerSec:100}}});
+  const host=new PluginHost({core,modules:new Map([[PLUGIN_IDS.gradescope,createConnector('gradescope')]])});
+  assert.ok((await host.install(connectorManifest('gradescope'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.gradescope,{status:200,body:account});
+  transport.queue(course.url,{status:200,body:'<table><tr><td><a href="/courses/11/assignments/2">示例作业</a></td><td class="dueDate"><time datetime="2026-10-20T23:00:00+08:00"></time></td></tr></table>'});
+  const result=await host.sync(PLUGIN_IDS.gradescope,{trigger:'manual',now:Date.now()});
+  assert.ok(result.ok);assert.deepEqual(result.data.errors,[]);
+  assert.deepEqual(transport.calls.map(r=>r.url),[ENTRY.gradescope,course.url]);
+  assert.ok(host.snapshot().audit.some(e=>e.action==='net.rate_wait'));
+});
+
+test('真实宿主：POST 限流明确失败，不重复发送教务表单',async()=>{
+  const transport=new MockTransport();
+  const core=createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.eams).hostname],rateCapacity:1,rateRefillPerSec:0.001}}});
+  const host=new PluginHost({core,modules:new Map([[PLUGIN_IDS.eams,createConnector('eams')]])});
+  assert.ok((await host.install(connectorManifest('eams'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.eams,{status:200,body:entry});
+  const result=await host.sync(PLUGIN_IDS.eams,{trigger:'manual',now:Date.now()});
+  assert.ok(result.ok);assert.match(result.data.errors.join(' '),/ERATELIMIT/);
+  assert.equal(transport.calls.length,1);
+});

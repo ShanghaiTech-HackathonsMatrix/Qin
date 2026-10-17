@@ -96,6 +96,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .topbar__title { font-weight: 650; font-size: 1.06em; letter-spacing: 0.2px; }
+/* 标题栏在手机上占了 82px，太厚：收紧内边距、给身份区一个横向布局 */
+.topbar { padding-top: calc(var(--pad) * 0.45); padding-bottom: calc(var(--pad) * 0.45); }
+.topbar__identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.topbar__sigil { font-size: 17px; line-height: 1; }
 .topbar__sub { color: var(--fg-faint); font-size: var(--fs-xs); margin-top: 1px; }
 .topbar__spacer { flex: 1; }
 
@@ -455,4 +459,385 @@ pre.diag {
   flex: 0 0 auto;
 }
 
-.ui-icon { flex: 0 0 auto; }
+
+/* Qin monochrome preview */
+:root { --bg-0: #f7f7f3; --bg-1: #fff; --bg-2: #efefeb; --bg-3: #e6e6e2; --fg: #111; --fg-dim: #555; --line: #111; --accent: #111; color-scheme: light; }
+body, .app { background: #f7f7f3; color: #111; }
+.topbar, .bottomnav, .card, .ui-card { background: #fff; color: #111; border-color: #111; box-shadow: none; }
+.btn--primary { background: #111; color: #fff; }
+.quest-intro { border: 2px solid #111; background: #fff; padding: 18px; border-radius: 9px 11px 8px 10px; }
+.quest-intro__eyebrow, .quest-intro__date, .quest-section__index { font: bold 11px Georgia, serif; letter-spacing: .09em; }
+.quest-intro__eyebrow { display: flex; justify-content: space-between; }
+.quest-intro__main { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.quest-intro__main h1 { font-size: 27px; line-height: 1.25; margin: 8px 0; }
+.quest-intro__main p { color: #555; font-size: 12px; }
+.quest-intro__drawing { width: 96px; height: 112px; flex-shrink: 0; }
+.quest-intro__stats { display: flex; justify-content: space-between; border-top: 1px solid #111; padding-top: 10px; gap: 4px; font-size: 11px; }
+.quest-intro__stats span { display: flex; flex-direction: column; }
+.quest-intro__stats b { font-size: 19px; }
+.quest-section { margin-top: 20px; }
+.quest-section__head { display: flex; justify-content: space-between; align-items: end; margin-bottom: 12px; }
+.quest-section__head h2 { margin: 3px 0 0; font-size: 21px; }
+.quest-section__ornament { font-size: 11px; }
+.quest-list { display: grid; gap: 10px; }
+.quest-card { width: 100%; text-align: left; background: #fff; color: #111; border: 1.5px solid #111; padding: 12px; border-radius: 9px 11px 8px 10px; }
+.demo-ribbon { margin-bottom: 14px; padding: 8px; text-align: center; font-size: 11px; background: #111; color: #fff; }
+/* 关键：button 默认 align-items:center，不加 column 方向会把「标题」「时间」「提示」挤成一行 */
+.next-class-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; margin-top: 18px; padding: 16px; background: #111; color: #fff; border: 0; border-radius: 10px 12px 8px 11px; font: inherit; text-align: left; cursor: pointer; }
+.next-class-card__index { color: #d8d8d8; font: bold 11px Georgia, serif; letter-spacing: .09em; }
+.next-class-card__main { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.next-class-card__main > span:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.next-class-card__title { font-size: 21px; font-weight: 700; line-height: 1.3; }
+.next-class-card__meta { font-size: 13px; }
+.next-class-card__arrow { font-size: 27px; line-height: 1; }
+.next-class-card__hint { color: #bbb; font-size: 11px; }
+.quest-section__head--spaced { margin-top: 26px; }
+.demo-list--spaced { margin-top: 24px; }
+/* ---------------------------------------------------------- 每日日程 */
+.schedule { display: grid; gap: 18px; }
+.schedule-day { display: grid; gap: 9px; }
+.schedule-day__head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 7px; border-bottom: 1.5px solid #111; }
+.schedule-day__head h2 { margin: 0; font-size: 16px; }
+.schedule-day__date { color: #555; font-size: 11px; }
+.schedule-day__count { margin-left: auto; color: #555; font-size: 11px; }
+.schedule-day__rows { display: grid; gap: 8px; }
+.schedule-entry { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 12px 12px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 8px 11px 9px 10px; font: inherit; text-align: left; cursor: pointer; }
+.schedule-entry:disabled { cursor: default; }
+.schedule-entry__time { font: bold 12px Georgia, serif; letter-spacing: .02em; }
+.schedule-entry__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.schedule-entry__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.schedule-entry__body small { color: #555; font-size: 11px; }
+.schedule-entry__tag { font-size: 10px; color: #555; border: 1px solid #bbb; border-radius: 5px; padding: 2px 5px; white-space: nowrap; }
+.schedule-entry[data-kind='class'] { background: #111; color: #fff; }
+.schedule-entry[data-kind='class'] .schedule-entry__body small,
+.schedule-entry[data-kind='class'] .schedule-entry__tag { color: #ddd; border-color: #555; }
+.schedule-entry[data-state='overdue'] { border-style: dashed; }
+.schedule-entry[data-state='overdue'] .schedule-entry__tag { color: #111; border-color: #111; font-weight: 800; }
+.schedule-entry[data-state='done'] { opacity: .55; }
+.schedule-entry[data-state='done'] .schedule-entry__body strong { text-decoration: line-through; }
+.schedule-empty { display: grid; justify-items: center; gap: 6px; padding: 34px 18px; border: 1.5px dashed #111; border-radius: 9px 11px 8px 10px; text-align: center; }
+.schedule-empty span { font-size: 22px; }
+.schedule-empty p { margin: 0; color: #555; font-size: 12px; line-height: 1.6; }
+/* 课程管理收在日程下方，默认折叠：这一页的主角是今天的安排 */
+.schedule-manage { margin-top: 24px; border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; padding: 0 14px; background: #fff; }
+.schedule-manage > summary { padding: 13px 0; font-weight: 700; font-size: 13px; cursor: pointer; list-style: none; }
+.schedule-manage > summary::-webkit-details-marker { display: none; }
+.schedule-manage > summary::before { content: '＋ '; }
+.schedule-manage[open] > summary::before { content: '− '; }
+.schedule-manage[open] { padding-bottom: 14px; }
+.schedule-manage .card { border-width: 1.5px; }
+.ddl-list { display: grid; gap: 9px; }
+/* DDL 卡：左边是抓眼的截止时间，右边是标题与来源。信息层级靠字号和粗细做，不靠装饰。 */
+.ddl-card { display: grid; grid-template-columns: 62px 1fr 20px; gap: 12px; align-items: center; width: 100%; padding: 13px 12px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 8px 11px 9px 10px; font: inherit; text-align: left; cursor: pointer; }
+.ddl-card:active { background: #f0f0ec; }
+.ddl-card__time { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding-right: 11px; border-right: 1px solid #c8c8c2; }
+.ddl-card__time strong { font: bold 17px Georgia, serif; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ddl-card__time em { font-size: 10px; font-style: normal; color: #555; white-space: nowrap; }
+.ddl-card__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ddl-card__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.ddl-card__body small { font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ddl-card__arrow { font-size: 17px; text-align: right; }
+.ddl-card[data-overdue='true'] { border-style: dashed; background: #111; color: #fff; }
+.ddl-card[data-overdue='true'] .ddl-card__time { border-right-color: #555; }
+.ddl-card[data-overdue='true'] .ddl-card__time em,
+.ddl-card[data-overdue='true'] .ddl-card__body small { color: #ccc; }
+.demo-overlay-backdrop { position: fixed; inset: 0; z-index: 80; padding: 20px; background: rgb(0 0 0 / .55); display: grid; place-items: center; }
+.demo-overlay { position: relative; width: min(520px, 100%); max-height: min(680px, 90vh); overflow: auto; padding: 25px 20px 22px; background: #f7f7f3; color: #111; border: 2px solid #111; border-radius: 12px 9px 11px 10px; }
+.demo-overlay h2 { margin: 6px 0 5px; font-size: 27px; }
+.demo-overlay__close { position: absolute; top: 10px; right: 13px; border: 0; background: none; font-size: 27px; cursor: pointer; }
+.schedule-list { display: grid; gap: 9px; margin-top: 18px; }
+.schedule-row { display: grid; grid-template-columns: 52px 1fr; gap: 3px 10px; padding: 13px; background: #fff; border: 1.5px solid #111; border-radius: 8px 10px 9px 11px; }
+.schedule-row span { grid-row: 1 / span 2; font: bold 12px Georgia, serif; }
+.schedule-row strong { font-size: 14px; }
+.schedule-row small { color: #555; font-size: 11px; }
+.demo-detail__meta { padding: 11px 0; border-block: 1px solid #aaa; font-size: 12px; line-height: 1.8; }
+.demo-detail__body { font-size: 14px; line-height: 1.8; }
+.demo-detail__source { margin: 18px 0; padding: 12px; border: 1px dashed #111; font-size: 11px; line-height: 1.7; }
+.demo-detail__source code { overflow-wrap: anywhere; }
+/* ---------------------------------------------------------- DDL 详情 */
+.ddl-detail-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / .55); padding: 0; }
+.ddl-detail { display: flex; flex-direction: column; width: 100%; max-height: 92%; background: #f7f7f3; border-top: 2px solid #111; border-radius: 16px 16px 0 0; overflow: hidden; }
+.ddl-detail__band { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: #111; color: #fff; flex: 0 0 auto; }
+.ddl-detail__kicker { font: bold 11px Georgia, serif; letter-spacing: .1em; }
+.ddl-detail__close { width: 30px; height: 30px; display: grid; place-items: center; background: none; border: 1.5px solid #fff; border-radius: 7px; color: #fff; font-size: 19px; line-height: 1; cursor: pointer; }
+.ddl-detail__scroll { overflow-y: auto; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+.ddl-detail__source { display: inline-block; padding: 2px 7px; border: 1.5px solid #111; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.ddl-detail__title { margin: 9px 0 0; font-size: 25px; line-height: 1.3; letter-spacing: -.02em; }
+.ddl-detail__rows { margin: 15px 0 0; display: grid; gap: 0; border-top: 1.5px solid #111; }
+.ddl-detail__rows > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #c8c8c2; }
+.ddl-detail__rows dt { color: #555; font-size: 12px; }
+.ddl-detail__rows dd { margin: 0; font-size: 13px; font-weight: 700; text-align: right; }
+.ddl-detail__rows dd[data-tone='bad'] { background: #111; color: #fff; padding: 0 6px; border-radius: 4px; }
+.ddl-detail__body { margin: 16px 0 0; font-size: 14px; line-height: 1.75; }
+.ddl-detail__link { margin-top: 16px; padding: 11px; border: 1.5px dashed #111; border-radius: 8px; display: grid; gap: 5px; }
+.ddl-detail__link span { font-size: 10px; letter-spacing: .06em; color: #555; }
+.ddl-detail__link code { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.ddl-detail__actions { display: flex; gap: 9px; margin-top: 18px; }
+.ddl-detail__foot { margin: 12px 0 0; font-size: 11px; line-height: 1.6; color: #555; }
+/* 桌面预览时给弹层一点边距，手机上仍是贴底的抽屉 */
+@media (min-width: 560px) {
+  .ddl-detail-backdrop { align-items: center; padding: 24px; }
+  .ddl-detail { max-width: 520px; border: 2px solid #111; border-radius: 12px 9px 11px 10px; max-height: 86%; }
+}
+/* 运行提示 / 降级提示：单色体系下的提示条，靠边框样式区分轻重 */
+.notice { padding: 11px 12px; border: 1.5px solid #111; border-radius: 8px 10px 7px 9px; background: #fff; font-size: 12px; line-height: 1.6; }
+.notice[data-tone='warn'] { background: #111; color: #fff; }
+.notice strong { display: block; font-size: 12px; letter-spacing: .04em; }
+.notice ul { margin: 5px 0 0; padding-left: 17px; }
+.notice li + li { margin-top: 3px; }
+.notice[data-tone='info'] { color: #555; }
+.notice[data-tone='info'] strong { color: #111; }
+.connection-grid { display: grid; gap: 10px; }
+/* ---------------------------------------------------------- 平台连接 */
+.conn-grid { display: grid; gap: 10px; }
+.conn { background: #fff; border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; padding: 13px; }
+.conn__head { display: flex; align-items: center; gap: 10px; }
+.conn__mark { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border: 1.5px solid #111; border-radius: 7px; font-weight: 900; }
+.conn__title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.conn__title strong { font-size: 14px; }
+.conn__title small { color: #555; font-size: 11px; }
+.conn__status { font-size: 10px; white-space: nowrap; padding: 2px 6px; border: 1px solid #bbb; border-radius: 5px; color: #555; }
+.conn__status[data-tone='on'] { border-color: #111; color: #111; font-weight: 800; }
+.conn__status[data-tone='warn'] { border-color: #111; border-style: dashed; color: #111; }
+.conn__toggle { margin-top: 11px; padding: 0; background: none; border: 0; font: inherit; font-size: 12px; font-weight: 700; color: #111; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.conn__form { display: grid; gap: 9px; margin-top: 11px; padding-top: 11px; border-top: 1px dashed #bbb; }
+.conn__field { display: grid; gap: 4px; }
+.conn__field span { font-size: 11px; color: #555; }
+.conn__field input { width: 100%; font: inherit; font-size: 13px; color: #111; background: #f7f7f3; border: 1.5px solid #111; border-radius: 7px; padding: 8px 10px; outline: none; }
+.conn__field input:focus { background: #fff; box-shadow: 0 0 0 2px #111 inset; }
+.conn__warning { margin: 0; font-size: 11px; line-height: 1.6; color: #555; }
+.conn__actions { display: flex; gap: 8px; margin-top: 12px; }
+.conn__actions .btn { flex: 1; }
+.conn__note { margin: 10px 0 0; padding: 9px 10px; font-size: 11px; line-height: 1.6; border-radius: 6px; border: 1.5px solid #111; }
+.conn__note[data-tone='bad'] { background: #111; color: #fff; }
+.conn__note[data-tone='info'] { background: #f7f7f3; }
+.conn__note[data-tone='ok'] { background: #fff; font-weight: 700; }
+.connection-card { padding: 14px; background: #fff; border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; }
+.connection-card__head { display: flex; align-items: center; gap: 10px; }
+.connection-card__head > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.connection-card__head strong { font-size: 14px; }
+.connection-card__head small { color: #555; font-size: 11px; }
+.connection-card__mark { width: 31px; height: 31px; display: grid; place-items: center; border: 1.5px solid #111; border-radius: 7px; font-weight: 900; }
+.connection-status { color: #666; font-size: 10px; white-space: nowrap; }
+.connection-card__actions { display: flex; gap: 8px; margin-top: 13px; }
+/* ---------------------------------------------------------- 演示列表 */
+/* 这些类名在 App.tsx 里一直在用，但样式在早先的一次误回滚里丢了 ——
+   于是「冒险图鉴」「任务日志」「在册课程」都退化成了没有排版的裸文字。 */
+.demo-list { margin-top: 10px; }
+.demo-list h2 { margin: 0 0 12px; font-size: 21px; letter-spacing: -.02em; }
+.demo-list__row { display: grid; grid-template-columns: 24px 1fr; gap: 11px; align-items: center; padding: 12px 2px; border-bottom: 1px solid #d3d3cd; }
+.demo-list__row:first-of-type { border-top: 1.5px solid #111; }
+.demo-list__row > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.demo-list__row strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.demo-list__row small { color: #555; font-size: 11px; }
+.demo-list__mark { font-size: 14px; text-align: center; line-height: 1; }
+
+/* ---------------------------------------------------------- 冒险图鉴 */
+.demo-atlas { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+.demo-atlas__tile { display: flex; gap: 9px; align-items: flex-start; padding: 13px 12px; background: #fff; border: 1.5px solid #111; border-radius: 10px 12px 8px 11px; min-width: 0; }
+.demo-atlas__tile > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.demo-atlas__symbol { font-size: 17px; line-height: 1.2; flex: 0 0 auto; }
+.demo-atlas__tile small { font: bold 9px Georgia, serif; letter-spacing: .1em; color: #555; text-transform: uppercase; }
+.demo-atlas__tile strong { font-size: 13px; line-height: 1.4; }
+.demo-atlas__tile em { font-size: 10.5px; font-style: normal; color: #555; line-height: 1.5; }
+
+/* 课程列表前的墨点记号 */
+.course-inkmark { font-size: 15px; line-height: 1; color: #111; flex: 0 0 auto; }
+.ui-icon { font-size: 15px; line-height: 1; display: inline-grid; place-items: center; }
+
+/* ---------------------------------------------------------- 布局开关 */
+/*
+   「列表 / 卡片」必须真的改变排版，否则设置项就是个摆设。
+   列表：行式，靠发丝线分隔，密度高。
+   卡片：每项独立成卡，留白多，像手账里贴的纸条。
+   两套规则同时覆盖插件渲染的 .ui-* 和演示数据的 .demo-*，
+   这样真机数据与演示数据看到的是同一种版式。
+*/
+[data-layout='list'] .ui-list { gap: 0; }
+[data-layout='list'] .ui-card { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 2px; background: transparent; }
+[data-layout='list'] .ui-list > .ui-card:first-child { border-top: 1.5px solid #111; }
+[data-layout='list'] .demo-list { gap: 0; }
+
+[data-layout='cards'] .ui-list { gap: 10px; }
+[data-layout='cards'] .ui-card { border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; padding: 13px; background: #fff; }
+[data-layout='cards'] .demo-list__row { border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; padding: 12px; background: #fff; }
+[data-layout='cards'] .demo-list__row + .demo-list__row { margin-top: 9px; }
+[data-layout='cards'] .demo-list__row:first-of-type { border-top: 1.5px solid #111; }
+[data-layout='cards'] .schedule-day__rows { gap: 9px; }
+[data-layout='cards'] .schedule-entry { padding: 13px 13px; }
+
+/* ---------------------------------------------------------- 首页一屏 */
+/*
+  首页要「一屏装下、不滚动」。
+  做法：把 .app__body 变成定高 flex 列，首页不产生滚动；
+  各块的尺寸用 vh 的 clamp 跟着屏幕高度缩放，360×780 与 430×932 都不会溢出。
+  底部留白只留标签栏的高度，不像其它页那样多留 72px（那是给滚动留的余量）。
+*/
+.app__body[data-page='home'] {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 1.2vh, 11px);
+  overflow: hidden;
+  /* 底部要给标签栏 + 右下角「＋」留位，否则圆钮会压住最后一排卡片 */
+  padding-bottom: calc(45px + 10px + 50px + 6px + env(safe-area-inset-bottom));
+}
+.app__body[data-page='home'] .demo-ribbon { margin-bottom: 0; padding: 5px; font-size: 10px; }
+
+/*
+  卡片容器。两种排法：
+    stack —— 全是整宽时退回单列，和「可定制」之前完全一样的排布，一屏装得下
+    grid  —— 只要有一张半宽卡，就切成两列：半宽占一格，整宽跨两格
+
+  为什么不是一直用 grid：grid 的等分行高会把英雄区和小图鉴压成一样高，
+  而单列 flex 才能让「余量喂给卡片本身」这套已经量好的行为保持不变。
+*/
+.home-grid { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: clamp(6px, 1.2vh, 11px); overflow: hidden; }
+.home-grid[data-mode='grid'] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+/* 超出 8 格就别硬裁了，让它在容器内滚动 */
+.home-grid[data-scroll='yes'] { overflow-y: auto; }
+.home-slot { min-width: 0; }
+.home-grid[data-mode='stack'] > .home-slot { flex: 0 0 auto; min-height: 0; }
+.home-grid[data-mode='grid'] > .home-slot[data-size='full'] { grid-column: 1 / -1; }
+
+/* 余量喂给英雄区与 DDL 卡片，而不是喂给间隙 */
+.home-grid[data-mode='stack'] > .home-slot[data-card='hero'] { flex: 1 1 auto; max-height: clamp(176px, 24vh, 232px); display: flex; flex-direction: column; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='hero'] > .quest-intro { flex: 1 1 auto; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .quest-section { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.home-grid[data-mode='stack'] > .home-slot[data-card='ddl'] .ddl-list { flex: 1 1 auto; grid-auto-rows: 1fr; }
+
+/* 卡片内部尺寸：首页比其它页更紧 */
+.app__body[data-page='home'] .quest-intro { padding: clamp(10px, 1.7vh, 15px); display: flex; flex-direction: column; justify-content: center; }
+.app__body[data-page='home'] .quest-intro h1 { font-size: clamp(18px, 2.5vh, 25px); line-height: 1.18; margin: 3px 0 0; letter-spacing: -.02em; }
+/* 一屏优先：副标题在首页让位，人物与标题已经说明了同一件事 */
+.app__body[data-page='home'] .quest-intro p { display: none; }
+.app__body[data-page='home'] .quest-intro__main { gap: 10px; }
+.app__body[data-page='home'] .quest-intro__drawing { width: clamp(48px, 7.8vh, 82px); height: clamp(52px, 8.4vh, 88px); }
+.app__body[data-page='home'] .quest-intro__stats { margin-top: clamp(6px, 1vh, 10px); padding-top: clamp(6px, 1vh, 9px); }
+.app__body[data-page='home'] .quest-intro__stats b { font-size: clamp(15px, 2vh, 19px); }
+.app__body[data-page='home'] .quest-section { margin-top: 0; }
+.app__body[data-page='home'] .quest-section__head { margin-bottom: clamp(5px, .9vh, 9px); padding-bottom: clamp(4px, .8vh, 7px); }
+.app__body[data-page='home'] .quest-section__head h2 { font-size: clamp(16px, 2.2vh, 20px); }
+.app__body[data-page='home'] .next-class-card { margin-top: 0; padding: clamp(9px, 1.6vh, 14px); gap: 3px; }
+.app__body[data-page='home'] .next-class-card__hint { font-size: 10px; }
+.app__body[data-page='home'] .next-class-card__title { font-size: clamp(16px, 2.3vh, 20px); }
+.app__body[data-page='home'] .next-class-card__arrow { font-size: clamp(19px, 2.6vh, 25px); }
+.app__body[data-page='home'] .ddl-list { gap: clamp(5px, 1vh, 9px); }
+.app__body[data-page='home'] .ddl-card { padding: clamp(7px, 1.2vh, 12px) 12px; }
+.app__body[data-page='home'] .demo-atlas { gap: clamp(6px, 1.1vh, 10px); }
+.app__body[data-page='home'] .demo-atlas__tile { padding: clamp(6px, 1.1vh, 11px) 11px; min-height: clamp(46px, 6.5vh, 72px); }
+.app__body[data-page='home'] .demo-atlas__tile em { display: none; }
+.app__body[data-page='home'] .demo-atlas__tile strong { font-size: 12.5px; }
+
+/* ---------------------------------------------------------- 半宽变体 */
+/*
+  半宽只有一百多像素，不是把整宽等比缩小 —— 横排的「标题 + 箭头」会挤成两行，
+  所以半宽一律改成竖排摘要：箭头与提示行去掉，字号降一档，列表最多两条。
+*/
+.home-slot[data-size='half'] .next-class-card { padding: 10px 11px; }
+.home-slot[data-size='half'] .next-class-card__index { font-size: 9px; letter-spacing: .04em; }
+.home-slot[data-size='half'] .next-class-card__title { font-size: 15px; }
+.home-slot[data-size='half'] .next-class-card__meta { font-size: 11px; }
+.home-slot[data-size='half'] .quest-section__head h2 { font-size: 14px; }
+.home-slot[data-size='half'] .quest-section__ornament { font-size: 9px; }
+.home-slot[data-size='half'] .ddl-card { grid-template-columns: 50px 1fr; gap: 9px; padding: 9px 10px; }
+.home-slot[data-size='half'] .ddl-card__time strong { font-size: 14px; }
+.home-slot[data-size='half'] .ddl-card__body strong { font-size: 12.5px; }
+.home-slot[data-size='half'] .ddl-card__body small { font-size: 10px; }
+.home-slot[data-size='half'] .demo-atlas { grid-template-columns: 1fr; }
+.home-slot[data-size='half'] .demo-atlas__tile { min-height: 0; }
+
+/* ---------------------------------------------------------- 定制编辑态 */
+.home-slot__bar { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; padding: 3px 5px 3px 3px; background: #111; color: #fff; border-radius: 7px 9px 6px 8px; font-size: 11px; }
+.home-slot__handle { padding: 2px 5px; background: transparent; color: #fff; border: 0; font: inherit; font-size: 14px; line-height: 1; cursor: grab; touch-action: none; }
+.home-slot__handle:active { cursor: grabbing; }
+.home-slot__name { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.home-slot__tools { display: flex; gap: 3px; }
+.icon-btn { min-width: 24px; height: 24px; padding: 0 5px; background: #fff; color: #111; border: 1px solid #111; border-radius: 4px; font: inherit; font-size: 12px; line-height: 1; cursor: pointer; }
+.icon-btn--wide { font-size: 10px; }
+.icon-btn:disabled { opacity: .3; cursor: default; }
+.home-slot[data-dragging='true'] { opacity: .55; outline: 2px dashed #111; outline-offset: 3px; }
+.home-slot--add { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 13px; background: #fff; color: #111; border: 1.5px dashed #111; border-radius: 9px 11px 8px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.home-empty { padding: 15px 12px; background: #fff; color: #555; border: 1.5px dashed #b9b9b3; border-radius: 8px; font-size: 12px; text-align: center; }
+/* 半宽卡落单时那一列的空位（只在编辑态显示） */
+.home-slot--gap { display: flex; align-items: center; justify-content: center; min-height: 56px; color: #9a9a94; border: 1.5px dashed #d5d5cf; border-radius: 8px; font-size: 11px; }
+.quick__state { font-size: 10px; color: #555; white-space: nowrap; }
+.quick__option[data-on='true'] { opacity: .5; cursor: default; }
+/* 顶栏「定制」按钮按下时反白，提示当前处于编辑态 */
+.btn[data-active='true'] { background: #111; color: #fff; border-color: #111; }
+
+/* 任务页底部折叠起来的插件页面（架构承诺留着，但不占主视线） */
+.plugin-page { margin-top: 6px; border-top: 1px dashed #c8c8c2; padding-top: 10px; }
+.plugin-page > summary { cursor: pointer; font-size: 11px; color: #555; list-style: none; }
+.plugin-page > summary::-webkit-details-marker { display: none; }
+.plugin-page > summary::before { content: '▸ '; }
+.plugin-page[open] > summary::before { content: '▾ '; }
+.plugin-page[open] > summary { margin-bottom: 10px; }
+
+/* ---------------------------------------------------------- 本周日程（可视化） */
+/*
+  一根竖列 = 一天，每道横杠 = 一件事。首页要的是「哪几天满、哪几天空」，
+  具体几点到几点是日程页要回答的问题，不在这里重复。
+*/
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.week-day { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 5px 2px 4px; background: #fff; color: #111; border: 1.2px solid #d5d5cf; border-radius: 5px 7px 4px 6px; font: inherit; cursor: pointer; }
+.week-day[data-today='true'] { background: #f7f7f3; border-color: #111; border-width: 1.6px; }
+.week-day__name { font-size: 9.5px; color: #555; }
+.week-day[data-today='true'] .week-day__name { color: #111; font-weight: bold; }
+.week-day__marks { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; min-height: 20px; }
+.week-day__mark { display: block; height: 4px; background: #111; border-radius: 2px; }
+.week-day__mark[data-kind='ddl'],
+.week-day__mark[data-kind='task'],
+.week-day__mark[data-kind='custom'] { height: 5px; background: transparent; border: 1.2px solid #111; }
+.week-day__mark[data-state='overdue'] { background: #111; border-color: #111; }
+.week-day__mark[data-state='done'] { opacity: .28; }
+.week-day__more { font-size: 8px; font-style: normal; color: #555; text-align: center; }
+.week-day__count { font-size: 9px; color: #555; }
+
+/* ---------------------------------------------------------- 任务日志 */
+/* 平台同步来的 DDL：左边截止时间，右边标题与来源，点开看详情 */
+.log-list { display: grid; gap: 9px; }
+.log-row { display: grid; grid-template-columns: 82px 1fr 18px; gap: 11px; align-items: center; width: 100%; padding: 12px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 8px 11px 9px 10px; font: inherit; text-align: left; cursor: pointer; }
+button.log-row:active { background: #f0f0ec; }
+.log-row[data-static='true'] { cursor: default; border-style: dashed; }
+.log-row__due { display: flex; flex-direction: column; gap: 2px; padding-right: 10px; border-right: 1px solid #c8c8c2; min-width: 0; }
+.log-row__due b { font: bold 11.5px Georgia, serif; letter-spacing: -.01em; line-height: 1.3; }
+.log-row__due em { font-size: 10px; font-style: normal; color: #555; white-space: nowrap; }
+.log-row__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.log-row__body strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.log-row__body small { font-size: 11px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-row__arrow { font-size: 15px; text-align: right; }
+.log-row[data-overdue='true'] { background: #111; color: #fff; border-style: dashed; }
+.log-row[data-overdue='true'] .log-row__due { border-right-color: #555; }
+.log-row[data-overdue='true'] .log-row__due em,
+.log-row[data-overdue='true'] .log-row__body small { color: #ccc; }
+
+/* 提示气泡：贴在「＋」上方居中，不跟圆钮抢位置 */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(45px + 10px + 50px + 14px + env(safe-area-inset-bottom)); z-index: 90; max-width: calc(100% - 32px); padding: 9px 15px; background: #111; color: #fff; border-radius: 8px 10px 7px 9px; font-size: 12px; text-align: center; }
+
+/* ---------------------------------------------------------- 悬浮加号 */
+.fab { position: fixed; right: 16px; bottom: calc(45px + 10px + env(safe-area-inset-bottom)); z-index: 40; width: 50px; height: 50px; display: grid; place-items: center; padding: 0; background: #111; color: #fff; border: 2px solid #111; border-radius: 50%; font-size: 25px; line-height: 1; cursor: pointer; }
+.fab span { transform: translateY(-1px); }
+.fab:active { background: #fff; color: #111; }
+
+/* ---------------------------------------------------------- 快速添加 */
+.quick { max-height: 82%; }
+.quick__menu { display: grid; gap: 9px; }
+.quick__option { display: grid; grid-template-columns: 30px 1fr 14px; gap: 11px; align-items: center; width: 100%; padding: 14px 13px; background: #fff; color: #111; border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; font: inherit; text-align: left; cursor: pointer; }
+.quick__option:active { background: #f0f0ec; }
+.quick__mark { font-size: 16px; text-align: center; }
+.quick__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.quick__body strong { font-size: 14px; }
+.quick__body small { font-size: 11px; color: #555; }
+.quick__arrow { font-size: 18px; color: #555; text-align: right; }
+.quick__foot { margin: 4px 0 0; font-size: 11px; line-height: 1.6; color: #555; }
+.quick__text { display: grid; gap: 10px; }
+.quick__input { width: 100%; font: inherit; font-size: 13px; line-height: 1.7; color: #111; background: #f7f7f3; border: 1.5px solid #111; border-radius: 8px; padding: 11px; outline: none; resize: vertical; }
+.quick__input:focus { background: #fff; box-shadow: 0 0 0 2px #111 inset; }
+.quick__count { font-size: 11px; color: #555; }
+.quick__count b { color: #111; font-size: 13px; }
+.quick__demo { color: #555; }
+
+@media (max-width: 370px) { .quest-intro__stats b { font-size: 17px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+

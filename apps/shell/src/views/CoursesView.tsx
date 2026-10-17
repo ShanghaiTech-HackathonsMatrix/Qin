@@ -14,7 +14,6 @@
 
 import { useState } from 'react';
 
-import { ACCENTS } from '../app/settings';
 import { ownerLabel, type CourseCard, type CourseDraft } from '../core/course-cards';
 import type { Task } from '../domain/types';
 
@@ -29,7 +28,6 @@ interface Props {
 export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDelete }: Props) {
   const [title, setTitle] = useState('');
   const [code, setCode] = useState('');
-  const [color, setColor] = useState(ACCENTS[0]!);
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
   const countFor = (id: string) => tasks.filter((t) => t.courseId === id).length;
@@ -37,7 +35,6 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
   const reset = () => {
     setTitle('');
     setCode('');
-    setColor(ACCENTS[0]!);
     setEditingKey(null);
   };
 
@@ -47,7 +44,7 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
     const draft: CourseDraft = {
       title: t,
       ...(code.trim() !== '' ? { code: code.trim() } : {}),
-      color,
+      ...(editingKey !== null ? { color: courses.find((c) => c.key === editingKey)?.color } : {}),
     };
 
     if (editingKey !== null) {
@@ -63,7 +60,6 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
     setEditingKey(c.key);
     setTitle(c.title);
     setCode(c.code ?? '');
-    setColor(c.color ?? ACCENTS[0]!);
   };
 
   const editableCount = courses.filter((c) => c.editable).length;
@@ -85,15 +81,7 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
         <div className="card" key={c.key}>
           <div className="row row--between">
             <div className="row grow">
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: c.color ?? 'var(--accent)',
-                  flexShrink: 0,
-                }}
-              />
+              <span className="course-inkmark" aria-hidden="true">✳</span>
               <div className="grow">
                 <div className="truncate" style={{ fontWeight: 570 }}>
                   {c.title}
@@ -154,20 +142,6 @@ export default function CoursesView({ courses, tasks, onCreate, onUpdate, onDele
             onChange={(e) => setCode(e.target.value)}
             placeholder="例如：CS101"
           />
-        </div>
-        <div>
-          <label className="lbl">颜色</label>
-          <div className="row">
-            {ACCENTS.map((a) => (
-              <span
-                key={a}
-                className="swatch"
-                data-active={a === color}
-                style={{ background: a }}
-                onClick={() => setColor(a)}
-              />
-            ))}
-          </div>
         </div>
         <div className="row">
           <button className="btn btn--primary grow" onClick={submit} disabled={!title.trim()}>

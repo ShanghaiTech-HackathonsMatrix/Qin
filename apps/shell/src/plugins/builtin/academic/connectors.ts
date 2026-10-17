@@ -18,7 +18,7 @@ interface Page { url: string; kind: string; course?: AcademicCourse; depth: numb
 /** 每轮只在最后产出一个完整快照；任何前序错误都不会覆盖旧数据。 */
 export function createConnector(provider: Provider): PluginExports {
   let snapshot: AcademicSnapshot;
-  let queue: Page[] = [], seen = new Set<string>(), page: Page, count = 0;
+  let queue: Page[] = [], seen = new Set<string>(), page: Page, count = 0, parsed = 0;
   let settings: Record<string,string> = {};
   const selected = () => settings.selectedCourses ? JSON.parse(settings.selectedCourses) as string[] : null;
   const canonical = (url:string) => {
@@ -36,14 +36,31 @@ export function createConnector(provider: Provider): PluginExports {
     page = queue.shift()!;
     return {id:`page-${++count}`,method:page.body?'POST':'GET',url:page.url,body:page.body,parse:'page',...(page.body?{headers:{'Content-Type':'application/x-www-form-urlencoded'}}:{})};
   };
-  const finish = (): ParseResult => ({entities:[{type:SNAPSHOT,id:'current',data:{json:JSON.stringify(snapshot)}}],summary:`课程 ${snapshot.courses.length}，作业 ${snapshot.assignments.length}，排课规则 ${snapshot.rules.length}`});
+  const finish = (): ParseResult => {
+    /*
+      一页都没读到就等于没同步。
+      空快照一旦发出去，就会把上一轮读好的课程和作业整片盖掉 —— 而界面上
+      只会显示一句「同步失败」，用户完全看不出数据已经没了。
+      宁可这一轮失败、保留旧数据。
+    */
+    if (snapshot.courses.length === 0) throw new Error('这一轮没读到任何课程，已保留上次结果');
+    /*
+      丢页保护。`broker` 允许单页失败后继续扫（那是对的 —— 一页超时不该连坐
+      整轮），但「一页失败」和「大半失败」是两件事：后者说明这次网络根本不通，
+      再拿它的结果去覆盖旧数据就是拿空的盖掉满的。丢了一半以上就整轮作废。
+    */
+    const lost = count - parsed;
+    if (lost > 0 && parsed < count / 2) throw new Error(`这一轮只读回 ${parsed}/${count} 页，已保留上次结果`);
+    return {entities:[{type:SNAPSHOT,id:'current',data:{json:JSON.stringify(snapshot)}}],summary:`课程 ${snapshot.courses.length}，作业 ${snapshot.assignments.length}，排课规则 ${snapshot.rules.length}`};
+  };
   return {
     plan(input) {
-      settings=input.settings??{}; queue=[];seen=new Set();count=0;
+      settings=input.settings??{}; queue=[];seen=new Set();count=0;parsed=0;
       snapshot={provider,syncedAt:input.now,courses:[],assignments:[],rules:[],periods:[],semester:''};
       enqueue({url:ENTRY[provider],kind:'entry',depth:0}); return {requests:[request()]};
     },
     parsers:{page(input: ParseInput): ParseResult {
+      parsed+=1;
       requirePage(input.body,input.status,input.baseUrl);
       if (provider==='eams') {
         if (page.kind==='entry') {

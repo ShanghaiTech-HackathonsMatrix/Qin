@@ -1,6 +1,7 @@
 ﻿import { projectAcademic, ACADEMIC_ID } from '../plugins/builtin/academic/projection.ts';
 import { PLUGIN_IDS, PROVIDERS, defaultSettings, validateSettings, type Provider, type TimetableSettings, type UserCorrections, type LessonOverride, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
 import { SNAPSHOT, type AcademicSnapshot } from '../plugins/builtin/academic/connectors.ts';
+import { splitSyncErrors } from './sync-errors.ts';
 import type { PluginHost } from './plugin-host.ts';
 import type { SecureStore } from '../platform/strategies/kv/types.ts';
 import type { NotifyPort } from './notify/port.ts';
@@ -70,21 +71,37 @@ export class AcademicService {
     this.statuses[provider]='正在读取…';this.changed();
     try {
       const s=this.settings;
-      const result=await this.host.sync(PLUGIN_IDS[provider],{trigger:'manual',now:Date.now(),settings:{semesterId:s.semesterId,gradescopeTimezone:s.gradescopeTimezone,
+      const now=Date.now();
+      const result=await this.host.sync(PLUGIN_IDS[provider],{trigger:'manual',now,settings:{semesterId:s.semesterId,gradescopeTimezone:s.gradescopeTimezone,
         ...(s.selectedCourses[provider]?{selectedCourses:JSON.stringify(s.selectedCourses[provider])}:{})}});
       if(!result.ok) throw new Error(result.message);
-      if(result.data.errors.length || result.data.rejectedEntities) throw new Error(result.data.errors.join('；') || '同步数据未能保存');
+      /*
+        这里原来写的是「`errors` 有一条就整轮失败」。但 `errors` 里混着两种
+        完全不同的东西：一种是「第 56 页超时了」，一种是「解析器抛错 / 没落盘」。
+        前者只意味着少几条数据，后者才意味着这一轮白跑。混在一起判的结果是
+        ——两百多页里任何一页慢一点，整轮报废。见 core/sync-errors.ts。
+      */
+      const {soft,hard}=splitSyncErrors(result.data.errors);
+      if(hard.length || result.data.rejectedEntities) throw new Error(hard.join('；') || '同步数据未能保存');
       const previous=this.snapshots;
       this.readSnapshots();this.migrateLessonCorrections(previous);
       const snap=this.snapshots.find(x=>x.provider===provider);
       if(!snap) throw new Error('本次未得到有效数据，保留上次结果');
+      /*
+        容忍单页失败之后要防一个新的坑：如果**整轮一个页面都没回来**，这一轮
+        根本没写新快照，`readSnapshots()` 读到的是上一轮的旧数据 —— 这时候报
+        「同步成功」就是在骗人。`syncedAt` 是本轮写进去的，对不上就是旧的。
+      */
+      if(soft.length && snap.syncedAt!==now) throw new Error(`这一轮一个页面都没读回来（${soft[0]}），保留上次结果`);
       // 只在用户尚未调整节次前采用网站识别的作息。
       if(provider==='eams' && snap.periods.length && !(await this.kv.get('academic.periods-edited'))) {
         const candidate={...this.settings,periods:snap.periods};validateSettings(candidate);this.settings=candidate;await this.persist();
       }
       await this.rebuild();
       await this.persist();
-      this.statuses[provider]=`同步成功：${snap.courses.length} 门课程，${provider==='eams'?`${snap.rules.length} 条排课`:`${snap.assignments.length} 项作业`}`;
+      // 少读了几个页面就说出来，别假装全齐了。
+      const gap=soft.length?`（${soft.length} 个页面没读到）`:'';
+      this.statuses[provider]=`同步成功：${snap.courses.length} 门课程，${provider==='eams'?`${snap.rules.length} 条排课`:`${snap.assignments.length} 项作业`}${gap}`;
     } catch(e) {
       this.statuses[provider]=e instanceof Error?e.message:String(e);throw e;
     }

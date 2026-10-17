@@ -9,6 +9,7 @@ import { AcademicService } from '../../../core/academic-service.ts';
 import { AcademicTransport, academicSessionFor } from '../../../core/academic-transport.ts';
 import { createCore, MockTransport } from '../../../core/index.ts';
 import { PluginHost } from '../../../core/plugin-host.ts';
+import { splitSyncErrors } from '../../../core/sync-errors.ts';
 import { KvEntityBackend } from '../../../core/kv-entity-backend.ts';
 import type { SecureStore } from '../../../platform/strategies/kv/types.ts';
 import type { NotifyPort, ScheduledNotification } from '../../../core/notify/port.ts';
@@ -157,4 +158,42 @@ test('真实宿主：POST 限流明确失败，不重复发送教务表单',asyn
   const result=await host.sync(PLUGIN_IDS.eams,{trigger:'manual',now:Date.now()});
   assert.ok(result.ok);assert.match(result.data.errors.join(' '),/ERATELIMIT/);
   assert.equal(transport.calls.length,1);
+});
+
+test('一页课都没读到就失败，不发空快照把旧数据盖掉',async()=>{
+  const transport=new MockTransport();
+  const core=createCore({transport,gateway:{config:{allowlist:['www.gradescope.com']}}});
+  const host=new PluginHost({core,modules:new Map([[PLUGIN_IDS.gradescope,createConnector('gradescope')]])});
+  assert.ok((await host.install(connectorManifest('gradescope'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.gradescope,{status:200,body:'<html><body>本学期没有课程</body></html>'});
+  const result=await host.sync(PLUGIN_IDS.gradescope,{trigger:'manual',now:Date.now()});
+  assert.ok(!result.ok,'空快照必须当成失败');
+  assert.match(result.message,/保留上次/);
+});
+
+test('单页超时不再连坐：整轮照常出结果，只在报告里记一条',async()=>{
+  const transport=new MockTransport();
+  const core=createCore({transport,gateway:{config:{allowlist:['www.gradescope.com'],retryCount:0}}});
+  const host=new PluginHost({core,modules:new Map([[PLUGIN_IDS.gradescope,createConnector('gradescope')]])});
+  assert.ok((await host.install(connectorManifest('gradescope'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.gradescope,{status:200,body:account});
+  transport.queue(course.url,{status:0,throw:'SocketTimeoutException'});
+  const result=await host.sync(PLUGIN_IDS.gradescope,{trigger:'manual',now:Date.now()});
+  assert.ok(result.ok,'一页超时不该让整轮失败');
+  assert.match(result.data.errors.join(' '),/page-\d+: ENET /);
+});
+
+test('同步错误分类：单页传输错误可忍，解析器抛错与落盘失败不可忍',()=>{
+  const {soft,hard}=splitSyncErrors([
+    'page-56: ENET 平台请求失败：SocketTimeoutException',
+    'page-7: EHTTP 平台返回 500',
+    '插件 app.matrix.connector.gradescope 的 parsers.page() 抛出异常: 平台返回 HTTP 401',
+    '持久化失败（数据仍在内存中，下次刷新前会重试）：磁盘满了',
+    '同步数据未能保存',
+  ]);
+  assert.deepEqual(soft,[
+    'page-56: ENET 平台请求失败：SocketTimeoutException',
+    'page-7: EHTTP 平台返回 500',
+  ]);
+  assert.equal(hard.length,3);
 });

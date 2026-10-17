@@ -33,6 +33,10 @@
   /* 正文字号倍率，由设置页滑轨写入 .app 的 style。
      注意别和上面的 --fs（基础字号）混了：这个只乘在阅读文本上。 */
   --font-scale: 1;
+
+  /* 底部栏高度。给它一个变量，是因为内容区的底部留白必须跟着它走 ——
+     底部栏加图标长高了 15px，写死的 45px 就让最后一张卡被压住 3px。 */
+  --tabbar-h: 60px;
 }
 
 [data-density='compact'] {
@@ -84,7 +88,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: var(--pad);
-  padding-bottom: calc(var(--pad) + 72px + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--pad) + var(--tabbar-h) + 12px + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -122,9 +126,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   flex: 1;
   background: none;
   border: 0;
-  padding: 9px 4px 11px;
-  color: var(--fg-faint);
-  font-size: var(--fs-xs);
+  padding: 7px 4px 9px;
+  /* 原来用的是暗色主题留下的 --fg-faint（偏冷灰），换成这套单色的暖灰 */
+  color: #8d8d87;
+  font-size: 12.5px;
+  letter-spacing: .01em;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -132,12 +138,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   cursor: pointer;
 }
 
-.tabbar button[data-active='true'] { color: var(--accent); }
-.tabbar__dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: currentColor; opacity: 0;
-}
-.tabbar button[data-active='true'] .tabbar__dot { opacity: 1; }
+.tabbar__icon { width: 21px; height: 21px; display: block; }
+.tabbar button[data-active='true'] { color: #111; font-weight: 620; }
+.tabbar button[data-active='true'] .tabbar__icon { stroke-width: 2.1; }
+.tabbar button:active { color: #111; }
 
 /* ---------------------------------------------------------- 通用件 */
 
@@ -695,7 +699,7 @@ body, .app { background: #f7f7f3; color: #111; }
   gap: clamp(6px, 1.2vh, 11px);
   overflow: hidden;
   /* 底部只留标签栏的高度。加号搬进人物卡之后，不必再为浮动圆钮预留 50px */
-  padding-bottom: calc(45px + 12px + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom));
 }
 .app__body[data-page='home'] .demo-ribbon { margin-bottom: 0; padding: 5px; font-size: 10px; }
 
@@ -812,6 +816,38 @@ body, .app { background: #f7f7f3; color: #111; }
 /* 逾期行整块压灰，标记也跟着淡一点，但别淡到看不见 */
 .log-row[data-overdue='true'] .tag-self,
 .ddl-card[data-overdue='true'] .tag-self { border-color: #d5d5cf; color: #94948e; }
+
+/*
+  左滑露出的操作条。
+  行本身不透明（白底），滑开时像抽屉一样把它推走，
+  而不是让按钮「长」在行上面 —— 后者会改行高，列表会抖。
+*/
+.swipe { position: relative; overflow: hidden; border-radius: 8px 11px 9px 10px; }
+.swipe__actions {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  display: flex;
+}
+.swipe__action {
+  width: 66px;
+  border: 0;
+  background: #f0f0ea;
+  color: #111;
+  font: 600 13px/1 -apple-system, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+.swipe__action + .swipe__action { border-left: 1.5px dashed #c8c8c2; }
+.swipe__action[data-danger='true'] { background: #111; color: #fff; }
+.swipe__action:active { opacity: .7; }
+.swipe__surface {
+  position: relative;
+  z-index: 1;
+  transition: transform .18s ease-out;
+  /* 纵向滚动交还给页面，横向手势留给左滑判定 */
+  touch-action: pan-y;
+}
+.swipe[data-dragging='true'] .swipe__surface { transition: none; }
 
 .home-empty { padding: 15px 12px; background: #fff; color: #555; border: 1.5px dashed #b9b9b3; border-radius: 8px; font-size: 12px; text-align: center; }
 /* 半宽卡落单时那一列的空位（只在编辑态显示） */

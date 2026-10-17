@@ -20,6 +20,7 @@ import TaskEditor from './components/TaskEditor';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
 import { ddlsFromTasks, pickUrgent, sortByDue, type DdlItem } from './app/ddl-items';
+import SwipeRow from './components/SwipeRow';
 import {
   HOME_CARD_META,
   HOME_CARD_ORDER,
@@ -98,6 +99,8 @@ export default function App() {
   const [homeEditing, setHomeEditing] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [cardPicker, setCardPicker] = useState(false);
+  /** 左滑展开操作的那一条。同时只允许一条展开 */
+  const [swipedId, setSwipedId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   /**
    * `?ddl=<id>` 直接打开某条演示 DDL 的详情。
@@ -361,25 +364,6 @@ export default function App() {
     commitHomeCards([...homeCards, { id, size: 'full' }]);
   }, [homeCards, commitHomeCards]);
 
-  /**
-   * 点开一条 DDL。
-   *
-   * 演示数据走样式化的详情抽屉（那是设计展示）；
-   * 真实任务走 `TaskEditor` —— 它有改状态、改截止时间、删除，
-   * 换成只读抽屉会让「标记完成」这个功能凭空消失。
-   */
-  const openDdl = useCallback((ddl: DdlItem) => {
-    if (ddl.taskId !== undefined) {
-      const target = tasks.find((t) => t.id === ddl.taskId);
-      if (target !== undefined) {
-        setEditor({ open: true, task: target });
-        return;
-      }
-    }
-    setSelectedDemoDdl(ddl.id);
-    setDemoOverlay('ddl');
-  }, [tasks]);
-
   const startDrag = useCallback((event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
     event.preventDefault();
     setDragIndex(index);
@@ -538,7 +522,47 @@ export default function App() {
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
   const formatDue = (at: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(at);
 
-  /** 插件槽里的课次（ICS 导入的课表）。演示模式下不读，避免和虚构数据混在一起 */
+  /**
+ * 底部栏图标。
+ *
+ * 和人物卡上那张手绘是同一套语言：只有线条、没有填充，
+ * 1.7 的描边、圆角端点，缩到 21px 也不糊。
+ */
+const TAB_ICONS = {
+  // 帐篷：首页是「营地」
+  home: (
+    <>
+      <path d="M4 19h16" />
+      <path d="M12 5 4.5 19h15L12 5z" />
+      <path d="M12 12.5 9 19h6l-3-6.5z" />
+    </>
+  ),
+  // 三行清单，第三行打个勾：任务
+  timeline: (
+    <>
+      <path d="M4 7h11M4 12h9M4 17h6" />
+      <path d="M15.5 17.5l1.8 1.8 3.2-3.6" />
+    </>
+  ),
+  // 日历：日程
+  courses: (
+    <>
+      <rect x="4" y="6" width="16" height="14" rx="2.5" />
+      <path d="M4 10.5h16M8.5 4v3.5M15.5 4v3.5" />
+      <path d="M8.5 14.5h3" />
+    </>
+  ),
+  // 行囊：设置
+  settings: (
+    <>
+      <path d="M5.5 9.5h13l-1.2 10.5H6.7L5.5 9.5z" />
+      <path d="M9 9.5V7a3 3 0 0 1 6 0v2.5" />
+      <path d="M9.5 14h5" />
+    </>
+  ),
+} as const;
+
+/** 插件槽里的课次（ICS 导入的课表）。演示模式下不读，避免和虚构数据混在一起 */
   const slotEntries = useMemo(
     () => (DEMO_MODE ? [] : (pluginsRef?.readSlot(SLOT_NAME) ?? [])),
     [pluginsRef],
@@ -586,6 +610,32 @@ export default function App() {
    * 用户看到的「最近」应该是今天该交的东西。
    * 同一天有多条就全留下 —— 一天的截止压力本来就该一起看。
    */
+  /**
+   * 点开一条 DDL。
+   *
+   * 演示数据走样式化的详情抽屉（那是设计展示）；
+   * 真实任务走 `TaskEditor` —— 它有改状态、改截止时间、删除，
+   * 换成只读抽屉会让「标记完成」这个功能凭空消失。
+   */
+  const openDdl = useCallback((ddl: DdlItem) => {
+    /*
+      这里原来查的是 `tasks`（真实库），而演示态的任务在 `visibleTasks` 里 ——
+      于是自建任务永远查不到，一路落到演示详情抽屉，而抽屉里
+      `demoDdls.find(...) ?? demoDdls[0]` 又把它兜底成了**第一条虚构 DDL**：
+      点什么都显示「提交界面线框草图」。两个 bug 叠在一起。
+    */
+    const target = visibleTasks.find((t) => t.id === (ddl.taskId ?? ddl.id));
+    if (target !== undefined) {
+      setEditor({ open: true, task: target });
+      return;
+    }
+    // 只有演示里那批虚构 DDL 才走样式化详情；它们是数据，不是任务
+    if (demoDdls.some((item) => item.id === ddl.id)) {
+      setSelectedDemoDdl(ddl.id);
+      setDemoOverlay('ddl');
+    }
+  }, [visibleTasks, demoDdls]);
+
   /** 挑选规则已抽到 app/ddl-items.ts，那里有 13 项断言盯着 */
   const urgentDdls = useMemo(() => pickUrgent(ddlItems, nowMs), [ddlItems, nowMs]);
 
@@ -985,10 +1035,21 @@ export default function App() {
               <div className="log-list">
                 {sortByDue(ddlItems).map((ddl) => {
                   const overdue = ddl.dueAt < nowMs;
+                  const task = visibleTasks.find((t) => t.id === (ddl.taskId ?? ddl.id));
                   return (
+                    <SwipeRow
+                      key={ddl.id}
+                      open={swipedId === ddl.id}
+                      onOpenChange={(next) => setSwipedId(next ? ddl.id : null)}
+                      actions={task === undefined
+                        ? []
+                        : [
+                            { label: '编辑', onClick: () => setEditor({ open: true, task }) },
+                            { label: '删除', danger: true, onClick: () => void deleteTask(task.id) },
+                          ]}
+                    >
                     <button
                       className="log-row"
-                      key={ddl.id}
                       data-overdue={overdue}
                       onClick={() => openDdl(ddl)}
                     >
@@ -1007,6 +1068,7 @@ export default function App() {
                       </span>
                       <span className="log-row__arrow" aria-hidden="true">↗</span>
                     </button>
+                    </SwipeRow>
                   );
                 })}
               </div>
@@ -1023,9 +1085,17 @@ export default function App() {
                 </div>
                 <div className="log-list">
                   {undatedTasks.map((t) => (
+                    <SwipeRow
+                      key={t.id}
+                      open={swipedId === t.id}
+                      onOpenChange={(next) => setSwipedId(next ? t.id : null)}
+                      actions={[
+                        { label: '编辑', onClick: () => setEditor({ open: true, task: t }) },
+                        { label: '删除', danger: true, onClick: () => void deleteTask(t.id) },
+                      ]}
+                    >
                     <button
                       className="log-row"
-                      key={t.id}
                       onClick={() => setEditor({ open: true, task: t })}
                     >
                       <span className="log-row__due">
@@ -1043,6 +1113,7 @@ export default function App() {
                       </span>
                       <span className="log-row__arrow" aria-hidden="true">↗</span>
                     </button>
+                    </SwipeRow>
                   ))}
                 </div>
               </>
@@ -1079,9 +1150,9 @@ export default function App() {
                 ? '演示数据里这段时间还没有安排。'
                 : '导入 .ics 课表，或在「任务」页添加带时间的任务，它们会出现在这里。'}
               onOpenEntry={(entry) => {
-                if (!DEMO_MODE || entry.kind !== 'ddl') return;
-                setSelectedDemoDdl(entry.id);
-                setDemoOverlay('ddl');
+                // 课程条目不是任务，点了不该有反应；其余按 id 找回对应条目
+                const item = ddlItems.find((d) => d.id === entry.id);
+                if (item !== undefined) openDdl(item);
               }}
             />
           </>
@@ -1126,23 +1197,34 @@ export default function App() {
         )}
       </div>
 
-      {/* 右下角「＋」：导入文字 / 自主添加。做成常驻圆钮，任何时候都能加东西。 */}
       <div className="tabbar">
         {([
-          ['home', '首页'],
-          ['timeline', `任务${openCount ? ` · ${openCount}` : ''}`],
-          ['courses', '日程'],
-          ['settings', '设置'],
-        ] as const).map(([id, label]) => (
-          <button key={id} data-active={tab === id} onClick={() => setTab(id)}>
-            <span className="tabbar__dot" />
+          ['home', '首页', TAB_ICONS.home],
+          ['timeline', `任务${openCount ? ` · ${openCount}` : ''}`, TAB_ICONS.timeline],
+          ['courses', '日程', TAB_ICONS.courses],
+          ['settings', '设置', TAB_ICONS.settings],
+        ] as const).map(([id, label, icon]) => (
+          <button key={id} data-active={tab === id} onClick={() => setTab(id)} aria-label={label}>
+            <svg
+              className="tabbar__icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {icon}
+            </svg>
             <span>{label}</span>
           </button>
         ))}
       </div>
 
       {demoOverlay === 'ddl' && DEMO_MODE && (() => {
-        const ddl = demoDdls.find((item) => item.id === selectedDemoDdl) ?? demoDdls[0];
+        // 兜底成 demoDdls[0] 会让「点任意一条都显示第一条」这种 bug 静默发生
+        const ddl = demoDdls.find((item) => item.id === selectedDemoDdl);
         if (ddl === undefined) return null;
         const overdue = ddl.dueAt < nowMs;
         return (

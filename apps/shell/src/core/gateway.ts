@@ -114,6 +114,9 @@ export interface GatewayStatus {
   rateRefillPerSec: number;
 }
 
+/** 一次请求最多给重试留这么多余量（毫秒）。见 `send()` 里的说明 */
+const RETRY_RESERVE_MS = 15_000;
+
 export class NetGateway {
   private rules: AllowRule[];
   private readonly config: GatewayConfig;
@@ -214,6 +217,16 @@ export class NetGateway {
       const left = deadline - this.now();
       if (left <= 0) break;                   // 时间用完，走下面的统一收尾
 
+      /*
+        单次尝试的时间 = 剩余预算减去「留给重试的那一份」。
+        早先这里直接把 `left` 全给出去，于是一次超时就把预算吃干净，
+        循环下一轮 `left <= 0` 直接 break —— 配了 retryCount 也等于没有重试。
+        校园网上的课表页面偶尔就是会卡满 15 秒，卡完一次就没机会了。
+      */
+      const attemptsLeft = maxAttempts - attempt;
+      const reserve = attemptsLeft > 1 ? Math.min(Math.floor(left / 3), RETRY_RESERVE_MS) : 0;
+      const attemptTimeout = Math.max(1, left - reserve);
+
       try {
         const res = await this.deps.transport.request({
           session,
@@ -221,8 +234,8 @@ export class NetGateway {
           method,
           headers,
           body,
-          connectTimeoutMs: left,
-          readTimeoutMs: left,
+          connectTimeoutMs: attemptTimeout,
+          readTimeoutMs: attemptTimeout,
         });
 
         if (RETRY_STATUS.has(res.status) && attempt + 1 < maxAttempts) {

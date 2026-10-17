@@ -192,6 +192,18 @@ export default function App() {
   useEffect(() => { void reload(); }, [reload]);
 
   /**
+   * 字号缩放的开关挂在 `<html>` 上，不是挂在这棵树上。
+   *
+   * `--fs / --fs-sm / --fs-xs` 是在 `:root` 里声明的，而自定义属性里的
+   * `var()` 在**声明它的那一层**就算完了 —— 挂在 `.app` 上，`:root` 那层
+   * 看到的还是 1，于是这三档字号纹丝不动，只有规则里直接写
+   * `calc(Npx * var(--font-scale))` 的地方会变。滑块"调了没反应"就是这个原因。
+   */
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-scale', String(settings.fontScale));
+  }, [settings.fontScale]);
+
+  /**
    * 保存任务。
    *
    * 演示态**不写库** —— 只改内存里的两份 state。
@@ -529,8 +541,6 @@ export default function App() {
     : tasks;
   const visibleCourses = DEMO_DATA?.courses ?? courses;
   const visibleCourseCount = DEMO_DATA?.courses.length ?? courseCards.length;
-  const openCount = visibleTasks.filter((t) => t.status === 'open').length;
-  const overdueCount = visibleTasks.filter((t) => t.status === 'open' && t.dueAt !== null && t.dueAt < nowMs).length;
   const demoClasses = DEMO_DATA?.classes ?? [];
   const demoDdls = DEMO_DATA?.ddls ?? [];
   /**
@@ -580,6 +590,16 @@ export default function App() {
   }, [visibleTasks, demoExtraTasks, platformItems, hasAcademic]);
   const courseFor = useCallback((courseId: string) => visibleCourses.find((course) => course.id === courseId)?.name ?? '个人任务', [visibleCourses]);
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
+  /**
+   * 一行右侧那个小字：已提交 / 已完成 / 已逾期 / 哪天。
+   *
+   * 交过的作业不该再标「已逾期」—— 它已经交过了，逾不逾期没有意义。
+   * 平台作业说「已提交」，自己加的说「已完成」，两者不是一回事。
+   */
+  const ddlStateLabel = (ddl: DdlItem, overdue: boolean): string => {
+    if (ddl.done === true) return ddl.provider === undefined ? '已完成' : '已提交';
+    return overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label;
+  };
   const formatDue = (at: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(at);
 
   /**
@@ -775,7 +795,28 @@ const TAB_ICONS = {
   }, [platform, flash]);
 
   /** 挑选规则已抽到 app/ddl-items.ts，那里有 13 项断言盯着 */
+  /**
+   * 首页那三个数字说的是「手上有多少事」，不是「core Task 表里有多少行」。
+   *
+   * 平台同步回来的作业不是 core Task，只数 Task 的话，同步了 42 个作业
+   * 首页照样显示 00 待办 / 00 已逾期 —— 数字和下面的列表直接打架。
+   */
+  const openCount = useMemo(() => ddlItems.filter((d) => d.done !== true).length, [ddlItems]);
+  const overdueCount = useMemo(
+    () => ddlItems.filter((d) => d.done !== true && d.dueAt < nowMs).length,
+    [ddlItems, nowMs],
+  );
+
   const urgentDdls = useMemo(() => pickUrgent(ddlItems, nowMs), [ddlItems, nowMs]);
+
+  /**
+   * 任务日志的展示顺序：没做完的按截止时间排前面，交过的沉到最后。
+   * `sort` 是稳定排序，所以两组内部仍然按截止时间。
+   */
+  const logDdls = useMemo(
+    () => [...sortByDue(ddlItems)].sort((a, b) => Number(a.done === true) - Number(b.done === true)),
+    [ddlItems],
+  );
 
   /**
    * 「自建任务」= 没有截止时间的那批。
@@ -841,21 +882,21 @@ const TAB_ICONS = {
     return [...fromClasses, ...fromDated];
   }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic]);
   /**
-   * 日程只排「昨天 → 未来两周」。
+   * 日程排「今天 0 点 → 未来两周」。
    *
-   * 教务同步回来的是整个学期（15 周 × 每周几节），全铺出来是五十多条 ——
-   * 那不是日程，是档案。这一页要回答的是「接下来干什么」，
-   * 所以留一个滚动窗口，界面上也写明只看两周。
+   * 两条边界都是有意的：
+   *   · 下界卡在今天 0 点。今天以前的事不排进来 —— 这一页回答的是
+   *     「接下来干什么」，翻回去看昨天交了什么应该去任务日志。
+   *   · 上界两周。教务同步回来的是整个学期（15 周 × 每周几节），
+   *     全铺出来五十多条，那不是日程是档案。
    */
   const SCHEDULE_AHEAD_DAYS = 14;
   const scheduleWindow = useMemo(() => {
-    const from = nowMs - 86_400_000;
+    const start = new Date(nowMs);
+    start.setHours(0, 0, 0, 0);
+    const from = start.getTime();
     const to = nowMs + SCHEDULE_AHEAD_DAYS * 86_400_000;
-    return scheduleEntries.filter((entry) => {
-      // 逾期且还没做完的事必须留下 —— 那正是最该被看见的一条
-      if (entry.kind !== 'class' && entry.state !== 'done' && entry.at < from) return true;
-      return entry.at >= from && entry.at <= to;
-    });
+    return scheduleEntries.filter((entry) => entry.at >= from && entry.at <= to);
   }, [scheduleEntries, nowMs]);
   const scheduleDays = useMemo(() => buildScheduleDays(scheduleWindow, nowMs), [scheduleWindow, nowMs]);
   const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
@@ -996,13 +1037,14 @@ const TAB_ICONS = {
                   <button
                     className="ddl-card"
                     key={ddl.id}
-                    data-overdue={overdue}
+                    data-overdue={overdue && ddl.done !== true}
+                    data-done={ddl.done === true}
                     data-size={size}
                     onClick={() => openDdl(ddl)}
                   >
                     <span className="ddl-card__time">
                       <strong>{hhmm(ddl.dueAt)}</strong>
-                      <em>{overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label}</em>
+                      <em>{ddlStateLabel(ddl, overdue)}</em>
                     </span>
                     <span className="ddl-card__body">
                       <strong>
@@ -1178,7 +1220,7 @@ const TAB_ICONS = {
               </div>
             ) : (
               <div className="log-list">
-                {sortByDue(ddlItems).map((ddl) => {
+                {logDdls.map((ddl) => {
                   const overdue = ddl.dueAt < nowMs;
                   const task = visibleTasks.find((t) => t.id === (ddl.taskId ?? ddl.id));
                   return (
@@ -1200,12 +1242,13 @@ const TAB_ICONS = {
                     >
                     <button
                       className="log-row"
-                      data-overdue={overdue}
+                      data-overdue={overdue && ddl.done !== true}
+                      data-done={ddl.done === true}
                       onClick={() => openDdl(ddl)}
                     >
                       <span className="log-row__due">
                         <b>{formatDue(ddl.dueAt)}</b>
-                        <em>{overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label}</em>
+                        <em>{ddlStateLabel(ddl, overdue)}</em>
                       </span>
                       <span className="log-row__body">
                         <strong>

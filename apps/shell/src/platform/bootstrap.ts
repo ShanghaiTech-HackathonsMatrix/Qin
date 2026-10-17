@@ -154,7 +154,14 @@ export async function bootstrap(): Promise<Platform> {
     ...(academicTransport !== null ? {transport: academicTransport} : {}),
     vaultBackend: kv.value,
     auditSink: auditStore.push,
-    gateway: { config: { allowlist: [...new Set([...loadAllowlist(), ...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname)])] } },
+    gateway: { config: {
+      allowlist: [...new Set([...loadAllowlist(), ...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname)])],
+      /*
+        单页预算 45 秒（默认 15 秒）。校园网上的课表/课程页面偶尔会卡十几秒，
+        15 秒一刀切会在第 50 多个页面莫名其妙地失败，而整次同步是全有或全无。
+      */
+      defaultTimeoutMs: 45_000,
+    } },
   });
 
   // 把读回来的历史记录灌进核心层的环形缓冲。

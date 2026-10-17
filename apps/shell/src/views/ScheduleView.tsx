@@ -19,6 +19,8 @@ export interface ScheduleEntry {
   meta: string;
   kind: 'class' | 'ddl' | 'task' | 'custom';
   state?: 'open' | 'done' | 'overdue';
+  /** 用户自己加的，不是课表/平台来的。视图挂一个很小的「自建」标记 */
+  selfMade?: boolean;
 }
 
 export interface ScheduleDay {
@@ -156,7 +158,12 @@ export default function ScheduleView({ days, emptyText, onOpenEntry }: Props) {
                 >
                   <span className="schedule-entry__time">{time}</span>
                   <span className="schedule-entry__body">
-                    <strong>{entry.title}</strong>
+                    <strong>
+                      {entry.title}
+                      {entry.selfMade === true && (
+                        <span className="tag-self" title="自己添加的，不是课表或平台同步来的">自建</span>
+                      )}
+                    </strong>
                     {entry.meta !== '' && <small>{entry.meta}</small>}
                   </span>
                   <span className="schedule-entry__tag">

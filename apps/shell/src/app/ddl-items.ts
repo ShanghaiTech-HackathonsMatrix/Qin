@@ -32,6 +32,8 @@ export interface DdlItem {
    * `Task` 上没有来源字段，等平台同步接上、真有了来源，这里应该换成读那个字段。
    */
   selfMade?: boolean;
+  /** 已完成。日程页据此显示「完成」而不是「逾期」 */
+  done?: boolean;
   description?: string;
   url?: string;
   /** 真实任务才有的回指：点开进编辑表单而不是演示详情 */
@@ -64,6 +66,7 @@ export function ddlsFromTasks(tasks: readonly Task[], allSelfMade = false): DdlI
       dueAt: t.dueAt,
       source: '本机记录',
       selfMade: allSelfMade || t.kind === 'custom',
+      ...(t.status === 'done' ? { done: true } : {}),
       ...(t.note !== undefined && t.note !== '' ? { description: t.note } : {}),
       taskId: t.id,
     });

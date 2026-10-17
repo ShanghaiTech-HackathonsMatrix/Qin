@@ -631,14 +631,23 @@ export default function App() {
           kind: v.type === 'session' ? ('class' as const) : ('custom' as const),
         }];
       });
+    /*
+      带截止时间的东西进日程，按时间参与排序。
+      演示态原来只取 `demoDdls`（虚构的平台 DDL），自己用「＋」加的那些
+      压根没进来 —— 于是「任务日志里有、日程里没有」。
+      现在直接复用 ddlItems：它已经把两种来源并成了一份。
+    */
     const fromDated: ScheduleEntry[] = DEMO_MODE
-      ? demoDdls.map((ddl) => ({
+      ? ddlItems.map((ddl) => ({
         id: ddl.id,
         at: ddl.dueAt,
         title: ddl.title,
-        meta: `${courseFor(ddl.courseId)} · ${ddl.source}`,
-        kind: 'ddl' as const,
-        state: ddl.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
+        meta: `${courseFor(ddl.courseId ?? '')} · ${ddl.source}`,
+        kind: ddl.selfMade === true ? ('task' as const) : ('ddl' as const),
+        state: ddl.done === true
+          ? ('done' as const)
+          : ddl.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
+        ...(ddl.selfMade === true ? { selfMade: true } : {}),
       }))
       : visibleTasks
         .filter((t): t is Task & { dueAt: number } => t.dueAt !== null)
@@ -649,9 +658,10 @@ export default function App() {
           meta: courseFor(t.courseId ?? ''),
           kind: 'task' as const,
           state: t.status === 'done' ? ('done' as const) : t.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
+          ...(t.kind === 'custom' ? { selfMade: true } : {}),
         }));
     return [...fromClasses, ...fromDated];
-  }, [slotEntries, demoClasses, demoDdls, visibleTasks, courseFor]);
+  }, [slotEntries, demoClasses, ddlItems, visibleTasks, courseFor, nowMs]);
   const scheduleDays = useMemo(() => buildScheduleDays(scheduleEntries, nowMs), [scheduleEntries]);
   const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
 

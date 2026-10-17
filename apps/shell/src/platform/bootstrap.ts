@@ -17,8 +17,9 @@ import { AcademicTransport, academicSessionFor, academicNativeAvailable, Platfor
 import { AcademicService } from '../core/academic-service.ts';
 import { CapacitorTransport } from '../core/transport.ts';
 import { createConnector, connectorManifest } from '../plugins/builtin/academic/connectors.ts';
-import { PROVIDERS, PLUGIN_IDS, ENTRY } from '../plugins/builtin/academic/model.ts';
+import { PROVIDERS, PLUGIN_IDS, ENTRY, type Provider } from '../plugins/builtin/academic/model.ts';
 import { ACADEMIC_ID, projectionManifest, projectionPlugin } from '../plugins/builtin/academic/projection.ts';
+import { SIMULATE_ACADEMIC, SimulatedAcademicTransport, simulatedWeekOne } from '../plugins/builtin/academic/simulate.ts';
 import { icsImporter, PLUGIN_ID as ICS_PLUGIN_ID, manifest as icsManifest } from '../plugins/builtin/importer-ics/index.ts';
 import {
   PLUGIN_ID as TIMELINE_PLUGIN_ID,
@@ -35,6 +36,13 @@ import type { ResolutionReport } from './strategies/types';
 
 export interface Platform {
   academic: AcademicService;
+  /**
+   * 学业同步是不是跑在模拟通道上（dev + `?demo=1`）。
+   *
+   * 界面必须能说清楚「这些数据是合成的」—— 一个演示用的开关最怕的就是
+   * 哪天被当成真的用起来，所以这个标记要一路传到设置页。
+   */
+  academicSimulated: boolean;
   kv: SecureStore;
   indexing: IndexingStrategy | null;
   /**
@@ -130,8 +138,19 @@ export async function bootstrap(): Promise<Platform> {
   const auditStore = new DurableAuditStore(kv.value);
   const restored = await auditStore.load();
 
+  /*
+    三条路：
+      · dev + `?demo=1` → 模拟通道，只伪造网络那一层，解析与投影都是真的
+      · Android / iOS   → 原生会话（WebView 登录 + 凭证留在原生侧）
+      · 其它           → 不传 transport，用默认实现
+  */
+  const academicNative = academicNativeAvailable();
+  const academicTransport = SIMULATE_ACADEMIC
+    ? new SimulatedAcademicTransport(new CapacitorTransport())
+    : academicNative ? new AcademicTransport(new CapacitorTransport()) : null;
+
   const core = createCore({
-    ...(academicNativeAvailable() ? {transport:new AcademicTransport(new CapacitorTransport())} : {}),
+    ...(academicTransport !== null ? {transport: academicTransport} : {}),
     vaultBackend: kv.value,
     auditSink: auditStore.push,
     gateway: { config: { allowlist: [...new Set([...loadAllowlist(), ...PROVIDERS.map(p=>new URL(ENTRY[p]).hostname)])] } },
@@ -268,12 +287,34 @@ export async function bootstrap(): Promise<Platform> {
     warnings.push('本平台没有可用的本地通知桥，不能安排提醒。');
   }
 
-  const academic=new AcademicService({host:plugins,kv:kv.value,notify,available:academicNativeAvailable(),
-    login:provider=>PlatformSessions.login({provider}),clear:()=>PlatformSessions.clear()});
-  try {await academic.init();} catch(e) {warnings.push(`学业数据恢复失败：${e instanceof Error?e.message:String(e)}`);}
+  const simulated = SIMULATE_ACADEMIC && !academicNative;
+  // 模拟时登录/清除都是空操作：没有真会话要开，也没有真会话要清
+  const academicLogin = async (_provider: Provider): Promise<{completed: boolean}> => simulated
+    ? {completed: true}
+    : PlatformSessions.login({provider: _provider});
+  const academicClear = async (): Promise<void> => {
+    if (!simulated) await PlatformSessions.clear();
+  };
+  const academic=new AcademicService({host:plugins,kv:kv.value,notify,
+    available: academicNative || simulated,
+    login: academicLogin,
+    clear: academicClear});
+  try {
+    await academic.init();
+    /*
+      模拟时顺手把「第 1 教学周」填成两周前的周一。
+      不填的话 `expandLessons` 会直接返回空数组 —— 同步成功、课表却是空的，
+      演示起来像是坏了。真实模式不动这个值，仍然由用户自己确认。
+    */
+    if (simulated && academic.settings.weekOne === '') {
+      await academic.saveSettings({...academic.settings, weekOne: simulatedWeekOne(Date.now())});
+    }
+  } catch(e) {warnings.push(`学业数据恢复失败：${e instanceof Error?e.message:String(e)}`);}
 
   return {
     academic,
+    /** 是否在跑模拟同步（dev + `?demo=1`）。界面据此写明「数据是合成的」 */
+    academicSimulated: simulated,
     kv: kv.value,
     indexing: idx.value,
     store: coreStore,

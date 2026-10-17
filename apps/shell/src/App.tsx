@@ -19,7 +19,8 @@ import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
-import { ddlsFromTasks, pickUrgent, sortByDue, type DdlItem } from './app/ddl-items';
+import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, sortByDue, type DdlItem } from './app/ddl-items';
+import AssignmentSheet, { type AssignmentDraft } from './components/AssignmentSheet';
 import SwipeRow from './components/SwipeRow';
 import {
   HOME_CARD_META,
@@ -38,10 +39,9 @@ import { PageView, WidgetPage } from './ui/WidgetPage';
 import { PLUGIN_ID as TIMELINE_PLUGIN_ID, SLOT_NAME } from './plugins/builtin/timeline/constants';
 import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
 import type { CourseCard, CourseDraft } from './core/course-cards';
-import AcademicView from './views/AcademicView';
 import { MatrixNotify } from '@matrix/capacitor-notify';
 
-type Tab = 'home' | 'timeline' | 'academic' | 'courses' | 'settings';
+type Tab = 'home' | 'timeline' | 'courses' | 'settings';
 const DEMO_MODE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1';
 const DEMO_DATA = DEMO_MODE ? createDemoData() : null;
 
@@ -103,6 +103,16 @@ export default function App() {
   const [cardPicker, setCardPicker] = useState(false);
   /** 左滑展开操作的那一条。同时只允许一条展开 */
   const [swipedId, setSwipedId] = useState<string | null>(null);
+  /**
+   * 学业服务的版本号。
+   *
+   * `AcademicService` 把快照和修正存在自己身上（不是 React state），
+   * 订阅它、用一个计数强制重算，比把整个服务塞进 state 更省事，
+   * 也不会因为对象引用不变而漏掉更新。
+   */
+  const [academicTick, setAcademicTick] = useState(0);
+  /** 正在编辑的平台作业 id；null = 没开弹层 */
+  const [assignmentId, setAssignmentId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   /**
    * `?ddl=<id>` 直接打开某条演示 DDL 的详情。
@@ -141,12 +151,23 @@ export default function App() {
   useEffect(() => {
     if (!platform?.notify.isSupported()) return;
     const consume = () => { void MatrixNotify.consumeTap?.().then(r => {
-      if (r.payload === 'academic') setTab('academic');
+      // 平台相关的东西都在设置里，通知点开就落到那儿
+      if (r.payload === 'academic') setTab('settings');
     }).catch(() => undefined); };
     consume();
     window.addEventListener('matrix-notification', consume);
     document.addEventListener('visibilitychange', consume);
     return () => { window.removeEventListener('matrix-notification', consume); document.removeEventListener('visibilitychange', consume); };
+  }, [platform]);
+
+  /*
+    学业服务的快照与「个人修正」都存在服务对象里，不是 React state。
+    订阅一下、拿计数强制重算 —— 同步完成、改了截止时间、标记完成，
+    首页和任务日志都会跟着动。
+  */
+  useEffect(() => {
+    if (platform === null) return;
+    return platform.academic.subscribe(() => setAcademicTick((n) => n + 1));
   }, [platform]);
 
   // ---------------------------------------------------------------- 数据
@@ -521,16 +542,42 @@ export default function App() {
    * 之前这里只读演示数据，于是「接入平台同步后才有 DDL」变成了一句空话：
    * 功能其实一直有，只是视图没去读。
    */
-  const ddlItems = useMemo<DdlItem[]>(
-    () => (DEMO_DATA !== null
+  /**
+   * 平台同步回来的快照。
+   *
+   * `academicTick` 是订阅计数器，放在依赖里是为了「同步完就重算」——
+   * 快照数组本身是可变的，引用不变 React 就不会更新。
+   */
+  const academicSnapshots = useMemo(
+    () => (platform === null ? [] : platform.academic.snapshots),
+    [platform, academicTick],
+  );
+  /** 有没有同步到真数据。有的话演示用的虚构样本让位 —— 两套并存只会互相打架 */
+  const hasAcademic = academicSnapshots.length > 0;
+
+  /** 从三个学习平台拉回来的作业，形状和本机任务完全一样 */
+  const platformItems = useMemo<DdlItem[]>(
+    () => (platform === null
+      ? []
+      : platformDdls(
+          platform.academic.snapshots,
+          platform.academic.settings.selectedCourses,
+          platform.academic.corrections.assignments,
+        )),
+    [platform, academicTick],
+  );
+
+  const ddlItems = useMemo<DdlItem[]>(() => {
+    const local = DEMO_DATA !== null
       ? [
-          ...DEMO_DATA.ddls.map((d) => ({ ...d, selfMade: false })),
-          // 演示态里用「＋」加的也算数：填了时间就该跟平台提取的那些排在一起
+          // 演示态的虚构 DDL 是占位：一旦真同步到数据就让位，否则两套平台数据打架
+          ...(hasAcademic ? [] : DEMO_DATA.ddls.map((d) => ({ ...d, selfMade: false }))),
+          // 用「＋」加的也算数：填了时间就该跟平台提取的那些排在一起
           ...ddlsFromTasks(demoExtraTasks, true),
         ]
-      : ddlsFromTasks(visibleTasks)),
-    [visibleTasks, demoExtraTasks],
-  );
+      : ddlsFromTasks(visibleTasks);
+    return [...platformItems, ...local];
+  }, [visibleTasks, demoExtraTasks, platformItems, hasAcademic]);
   const courseFor = useCallback((courseId: string) => visibleCourses.find((course) => course.id === courseId)?.name ?? '个人任务', [visibleCourses]);
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
   const formatDue = (at: number) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(at);
@@ -565,14 +612,6 @@ const TAB_ICONS = {
       <path d="M8.5 14.5h3" />
     </>
   ),
-  // 摊开的书：课业
-  academic: (
-    <>
-      <path d="M12 7.5C10 6 7.5 5.5 4.5 5.8v11.4c3-.3 5.5.2 7.5 1.7" />
-      <path d="M12 7.5c2-1.5 4.5-2 7.5-1.7v11.4c-3-.3-5.5.2-7.5 1.7" />
-      <path d="M12 7.5v11.4" />
-    </>
-  ),
   // 行囊：设置
   settings: (
     <>
@@ -585,8 +624,8 @@ const TAB_ICONS = {
 
 /** 插件槽里的课次（ICS 导入的课表）。演示模式下不读，避免和虚构数据混在一起 */
   const slotEntries = useMemo(
-    () => (DEMO_MODE ? [] : (pluginsRef?.readSlot(SLOT_NAME) ?? [])),
-    [pluginsRef],
+    () => (DEMO_MODE && !hasAcademic ? [] : (pluginsRef?.readSlot(SLOT_NAME) ?? [])),
+    [pluginsRef, hasAcademic],
   );
 
   /**
@@ -596,7 +635,7 @@ const TAB_ICONS = {
    * 现在跨天比较完整时间戳，明天/后天的课也能接上。
    */
   const nextSession = useMemo<{ title: string; time: string; location: string } | null>(() => {
-    if (DEMO_MODE) {
+    if (DEMO_MODE && !hasAcademic) {
       const session = demoClasses.reduce<DemoClassSession | null>((best, current) => {
         const at = demoSessionEpoch(current);
         if (at < nowMs) return best;
@@ -621,7 +660,7 @@ const TAB_ICONS = {
       time: end !== null ? `${hhmm(start)}–${hhmm(end)}` : hhmm(start),
       location: typeof upcoming.data.detail === 'string' ? upcoming.data.detail : '',
     };
-  }, [demoClasses, slotEntries, nowMs]);
+  }, [demoClasses, slotEntries, nowMs, hasAcademic]);
 
   /**
    * 最近的 DDL：**以「天」为基准**。
@@ -645,6 +684,11 @@ const TAB_ICONS = {
       `demoDdls.find(...) ?? demoDdls[0]` 又把它兜底成了**第一条虚构 DDL**：
       点什么都显示「提交界面线框草图」。两个 bug 叠在一起。
     */
+    // 拉回来的作业不是本机任务，改的是「个人修正」，走另一个弹层
+    if (ddl.provider !== undefined) {
+      setAssignmentId(ddl.id);
+      return;
+    }
     const target = visibleTasks.find((t) => t.id === (ddl.taskId ?? ddl.id));
     if (target !== undefined) {
       setEditor({ open: true, task: target });
@@ -656,6 +700,73 @@ const TAB_ICONS = {
       setDemoOverlay('ddl');
     }
   }, [visibleTasks, demoDdls]);
+
+  /** 平台作业的原始记录（未叠个人修正）。找不到说明同步数据变了 */
+  const rawAssignment = assignmentId === null
+    ? undefined
+    : platform?.academic.snapshots.flatMap((snap) => snap.assignments).find((a) => a.id === assignmentId);
+
+  /**
+   * 弹层要显示的内容 = 平台原文 + 个人修正。
+   * 直接读服务，而不是读列表里的那一行 —— 列表可能因为筛选/隐藏没有它。
+   */
+  const assignmentDraft = useMemo<AssignmentDraft | null>(() => {
+    if (assignmentId === null || rawAssignment === undefined) return null;
+    const fix = platform?.academic.corrections.assignments[assignmentId];
+    const merged = { ...rawAssignment, ...fix };
+    const snapshot = platform?.academic.snapshots.find((snap) => snap.assignments.some((a) => a.id === assignmentId));
+    return {
+      id: merged.id,
+      title: merged.title,
+      dueAt: merged.dueAt,
+      note: fix?.note ?? '',
+      done: fix?.done ?? (merged.status === 'submitted' || merged.status === 'graded'),
+      dueText: merged.dueText,
+      courseTitle: snapshot?.courses.find((c) => c.id === merged.courseId)?.title ?? '',
+      source: PROVIDER_LABEL[merged.provider] ?? merged.provider,
+      status: merged.status,
+    };
+  }, [assignmentId, rawAssignment, platform, academicTick]);
+
+  const saveAssignment = useCallback(async (id: string, patch: {
+    title?: string; dueAt?: number | null; note?: string; done?: boolean;
+  }) => {
+    if (platform === null) return;
+    try {
+      await platform.academic.editAssignment(id, patch);
+      setAssignmentId(null);
+      flash('已保存 · 只改本机，不动平台原文');
+    } catch (e) {
+      flash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [platform, flash]);
+
+  /**
+   * 隐藏一条平台作业。
+   *
+   * 平台上的作业删不掉（那是学校的记录），能做的只有「我不看它」。
+   * 所以按钮写「隐藏」而不是「删除」—— 写删除就是在骗人。
+   */
+  const hideAssignment = useCallback(async (id: string) => {
+    if (platform === null) return;
+    try {
+      await platform.academic.editAssignment(id, { hidden: true });
+      flash('已隐藏 · 平台上的记录还在');
+    } catch (e) {
+      flash(`隐藏失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [platform, flash]);
+
+  const resetAssignment = useCallback(async (id: string) => {
+    if (platform === null) return;
+    try {
+      await platform.academic.resetAssignment(id);
+      setAssignmentId(null);
+      flash('已恢复平台数据');
+    } catch (e) {
+      flash(`恢复失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [platform, flash]);
 
   /** 挑选规则已抽到 app/ddl-items.ts，那里有 13 项断言盯着 */
   const urgentDdls = useMemo(() => pickUrgent(ddlItems, nowMs), [ddlItems, nowMs]);
@@ -681,7 +792,7 @@ const TAB_ICONS = {
   }, [ddlItems, visibleTasks, demoExtraTasks]);
   /** 首页与「日程」页共用同一份条目，避免两处各写一遍映射 */
   const scheduleEntries = useMemo<ScheduleEntry[]>(() => {
-    const fromClasses: ScheduleEntry[] = DEMO_MODE
+    const fromClasses: ScheduleEntry[] = DEMO_MODE && !hasAcademic
       ? demoClasses.map((session) => ({
         id: session.id,
         at: demoSessionEpoch(session),
@@ -690,16 +801,18 @@ const TAB_ICONS = {
         meta: session.location,
         kind: 'class',
       }))
+      // 只收课次。带截止时间的作业统一从 ddlItems 来 —— 两边都收会重复一行
       : slotEntries.flatMap((entry, i) => {
         const v = entry.data;
+        if (v.type !== 'session') return [];
         if (typeof v.startAt !== 'number' || typeof v.title !== 'string') return [];
         return [{
           id: `slot-${i}-${v.startAt}`,
           at: v.startAt,
           ...(typeof v.endAt === 'number' ? { endAt: v.endAt } : {}),
           title: v.title,
-          meta: [typeof v.detail === 'string' ? v.detail : '', typeof v.courseId === 'string' ? courseFor(v.courseId) : ''].filter(Boolean).join(' · '),
-          kind: v.type === 'session' ? ('class' as const) : ('custom' as const),
+          meta: typeof v.detail === 'string' ? v.detail : '',
+          kind: 'class' as const,
         }];
       });
     /*
@@ -708,32 +821,37 @@ const TAB_ICONS = {
       压根没进来 —— 于是「任务日志里有、日程里没有」。
       现在直接复用 ddlItems：它已经把两种来源并成了一份。
     */
-    const fromDated: ScheduleEntry[] = DEMO_MODE
-      ? ddlItems.map((ddl) => ({
-        id: ddl.id,
-        at: ddl.dueAt,
-        title: ddl.title,
-        meta: `${courseFor(ddl.courseId ?? '')} · ${ddl.source}`,
-        kind: ddl.selfMade === true ? ('task' as const) : ('ddl' as const),
-        state: ddl.done === true
-          ? ('done' as const)
-          : ddl.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
-        ...(ddl.selfMade === true ? { selfMade: true } : {}),
-      }))
-      : visibleTasks
-        .filter((t): t is Task & { dueAt: number } => t.dueAt !== null)
-        .map((t) => ({
-          id: t.id,
-          at: t.dueAt,
-          title: t.title,
-          meta: courseFor(t.courseId ?? ''),
-          kind: 'task' as const,
-          state: t.status === 'done' ? ('done' as const) : t.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
-          ...(t.kind === 'custom' ? { selfMade: true } : {}),
-        }));
+    const fromDated: ScheduleEntry[] = ddlItems.map((ddl) => ({
+      id: ddl.id,
+      at: ddl.dueAt,
+      title: ddl.title,
+      meta: ddlMeta(ddl, courseFor(ddl.courseId ?? '')),
+      kind: ddl.provider !== undefined || ddl.selfMade !== true ? ('ddl' as const) : ('task' as const),
+      state: ddl.done === true
+        ? ('done' as const)
+        : ddl.dueAt < nowMs ? ('overdue' as const) : ('open' as const),
+      ...(ddl.selfMade === true ? { selfMade: true } : {}),
+    }));
     return [...fromClasses, ...fromDated];
-  }, [slotEntries, demoClasses, ddlItems, visibleTasks, courseFor, nowMs]);
-  const scheduleDays = useMemo(() => buildScheduleDays(scheduleEntries, nowMs), [scheduleEntries]);
+  }, [slotEntries, demoClasses, ddlItems, courseFor, nowMs, hasAcademic]);
+  /**
+   * 日程只排「昨天 → 未来两周」。
+   *
+   * 教务同步回来的是整个学期（15 周 × 每周几节），全铺出来是五十多条 ——
+   * 那不是日程，是档案。这一页要回答的是「接下来干什么」，
+   * 所以留一个滚动窗口，界面上也写明只看两周。
+   */
+  const SCHEDULE_AHEAD_DAYS = 14;
+  const scheduleWindow = useMemo(() => {
+    const from = nowMs - 86_400_000;
+    const to = nowMs + SCHEDULE_AHEAD_DAYS * 86_400_000;
+    return scheduleEntries.filter((entry) => {
+      // 逾期且还没做完的事必须留下 —— 那正是最该被看见的一条
+      if (entry.kind !== 'class' && entry.state !== 'done' && entry.at < from) return true;
+      return entry.at >= from && entry.at <= to;
+    });
+  }, [scheduleEntries, nowMs]);
+  const scheduleDays = useMemo(() => buildScheduleDays(scheduleWindow, nowMs), [scheduleWindow, nowMs]);
   const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
 
   // 布局文档的读写口。用户「这一页摆什么」的真相在 KV 里，不在代码里
@@ -744,7 +862,7 @@ const TAB_ICONS = {
 
   // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
   const goTab = useCallback((to: string) => {
-    setTab(to === 'timeline' || to === 'academic' || to === 'courses' || to === 'settings' ? to : 'home');
+    setTab(to === 'timeline' || to === 'courses' || to === 'settings' ? to : 'home');
   }, []);
 
   // ---------------------------------------------------------------- 渲染
@@ -887,7 +1005,7 @@ const TAB_ICONS = {
                           <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
                         )}
                       </strong>
-                      <small>{courseFor(ddl.courseId ?? '')} · {ddl.source}</small>
+                      <small>{ddlMeta(ddl, courseFor(ddl.courseId ?? ''))}</small>
                     </span>
                     {size === 'full' && <span className="ddl-card__arrow" aria-hidden="true">↗</span>}
                   </button>
@@ -1062,12 +1180,17 @@ const TAB_ICONS = {
                       key={ddl.id}
                       open={swipedId === ddl.id}
                       onOpenChange={(next) => setSwipedId(next ? ddl.id : null)}
-                      actions={task === undefined
-                        ? []
-                        : [
-                            { label: '编辑', onClick: () => setEditor({ open: true, task }) },
-                            { label: '删除', danger: true, onClick: () => void deleteTask(task.id) },
-                          ]}
+                      actions={ddl.provider !== undefined
+                        ? [
+                            { label: '编辑', onClick: () => setAssignmentId(ddl.id) },
+                            { label: '隐藏', danger: true, onClick: () => void hideAssignment(ddl.id) },
+                          ]
+                        : task === undefined
+                          ? []
+                          : [
+                              { label: '编辑', onClick: () => setEditor({ open: true, task }) },
+                              { label: '删除', danger: true, onClick: () => void deleteTask(task.id) },
+                            ]}
                     >
                     <button
                       className="log-row"
@@ -1085,7 +1208,7 @@ const TAB_ICONS = {
                             <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
                           )}
                         </strong>
-                        <small>{courseFor(ddl.courseId ?? '')} · {ddl.source}</small>
+                        <small>{ddlMeta(ddl, courseFor(ddl.courseId ?? ''))}</small>
                       </span>
                       <span className="log-row__arrow" aria-hidden="true">↗</span>
                     </button>
@@ -1161,12 +1284,10 @@ const TAB_ICONS = {
           </>
         )}
 
-        {tab === 'academic' && <AcademicView service={p.academic} onChanged={reload} />}
-
         {tab === 'courses' && (
           <>
             {/* 「课程」改成每日日程：课次与 DDL 混排，按天分组。 */}
-            <div className="quest-section__head quest-section__head--spaced"><h2>每日日程</h2><span className="quest-section__ornament">{DEMO_MODE ? '演示课表' : '按天分组'}</span></div>
+            <div className="quest-section__head quest-section__head--spaced"><h2>每日日程</h2><span className="quest-section__ornament">{hasAcademic ? '未来两周' : DEMO_MODE ? '演示课表' : '按天分组'}</span></div>
             <ScheduleView
               days={scheduleDays}
               emptyText={DEMO_MODE
@@ -1224,7 +1345,6 @@ const TAB_ICONS = {
         {([
           ['home', '首页', TAB_ICONS.home],
           ['timeline', `任务${openCount ? ` · ${openCount}` : ''}`, TAB_ICONS.timeline],
-          ['academic', '课业', TAB_ICONS.academic],
           ['courses', '日程', TAB_ICONS.courses],
           ['settings', '设置', TAB_ICONS.settings],
         ] as const).map(([id, label, icon]) => (
@@ -1361,6 +1481,16 @@ const TAB_ICONS = {
             await saveCourse(c);
             return c;
           }}
+        />
+      )}
+
+      {assignmentId !== null && assignmentDraft !== null && (
+        <AssignmentSheet
+          draft={assignmentDraft}
+          busy={platform?.academic.busy === true}
+          onClose={() => setAssignmentId(null)}
+          onSave={(patch) => void saveAssignment(assignmentId, patch)}
+          onReset={() => void resetAssignment(assignmentId)}
         />
       )}
 

@@ -16,7 +16,7 @@
 
   --fg: #e8eaf0;
   --fg-dim: #9aa1b1;
-  --fg-faint: #6b7280;
+  --fg-faint: #8d8d87;
 
   --ok: #3ecf8e;
   --warn: #f0b429;
@@ -283,6 +283,18 @@ label.lbl { display: block; font-size: var(--fs-sm); color: var(--fg-dim); margi
 
 .sheet__head { display: flex; align-items: center; gap: var(--gap); margin-bottom: var(--gap); }
 .sheet__title { font-weight: 660; font-size: 1.05em; }
+
+/* ---- 作业详情弹层（拉回来的平台作业） ---- */
+.sheet__head h2 { font-size: 16px; margin: 0; flex: 1; }
+.assign-meta {
+  display: flex; justify-content: space-between; gap: 8px;
+  color: #8d8d87; font-size: 12.5px; margin-bottom: 14px;
+}
+.field-label { display: grid; gap: 5px; margin-bottom: 13px; font-size: 13px; color: #555; }
+.assign-hint { color: #8d8d87; font-size: 12px; margin: -7px 0 13px; line-height: 1.5; }
+.assign-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: 2px 0 18px; }
+.sheet__actions { display: flex; gap: 9px; }
+.sheet__actions .btn { flex: 1; }
 
 .strat {
   border: 1px solid var(--line);

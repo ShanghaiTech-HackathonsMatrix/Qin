@@ -11,7 +11,7 @@
 import { strict as assert } from 'node:assert';
 
 import type { Task } from '../domain/types.ts';
-import { ddlsFromTasks, pickUrgent, sortByDue, type DdlItem } from './ddl-items.ts';
+import { ddlsFromTasks, pickUrgent, sortByDue, platformDdls, ddlMeta, type DdlItem } from './ddl-items.ts';
 
 let passed = 0;
 const failures: string[] = [];
@@ -163,3 +163,86 @@ console.log(
 );
 
 if (failures.length > 0) process.exit(1);
+
+// ---------------------------------------------------------------- 平台作业
+
+const snapshot = (provider: string, assignments: readonly unknown[]) => ({
+  provider,
+  syncedAt: at(0, 9, 0),
+  courses: [
+    { id: `${provider}:1`, title: provider === 'gradescope' ? '交互设计' : '操作系统' },
+    { id: `${provider}:2`, title: '算法设计' },
+  ],
+  assignments: assignments as never,
+});
+
+const assignment = (id: string, courseId: string, dueAt: number | null, status = 'not_submitted') => ({
+  id, courseId, title: `作业 ${id}`, dueAt, status,
+});
+
+test('平台作业：没有明确截止时间的不进列表，不猜', () => {
+  const out = platformDdls([snapshot('gradescope', [
+    assignment('a1', 'gradescope:1', at(0, 22, 0)),
+    assignment('a2', 'gradescope:2', null),
+  ])]);
+  assert.deepEqual(out.map((d) => d.id), ['a1']);
+});
+
+test('平台作业：来源写真实平台名，课程名跟着带出来', () => {
+  const [item] = platformDdls([snapshot('gradescope', [assignment('a1', 'gradescope:1', at(0, 22, 0))])]);
+  assert.equal(item?.source, 'Gradescope');
+  assert.equal(item?.courseTitle, '交互设计');
+  assert.equal(item?.selfMade, false);
+  assert.equal(item?.provider, 'gradescope');
+  assert.equal(item === undefined ? '' : ddlMeta(item), '交互设计 · Gradescope');
+});
+
+test('平台作业：BB 显示成「互动教学平台」，教务显示成「教务课表」', () => {
+  const out = platformDdls([
+    snapshot('blackboard', [assignment('b1', 'blackboard:1', at(0, 10, 0))]),
+    snapshot('eams', [assignment('e1', 'eams:1', at(1, 10, 0))]),
+  ]);
+  assert.deepEqual(out.map((d) => d.source), ['互动教学平台', '教务课表']);
+});
+
+test('平台作业：按课程筛选，选空就是全不要', () => {
+  const rows = [assignment('a1', 'gradescope:1', at(0, 22, 0)), assignment('a2', 'gradescope:2', at(0, 23, 0))];
+  assert.equal(platformDdls([snapshot('gradescope', rows)], {}).length, 2);
+  assert.deepEqual(platformDdls([snapshot('gradescope', rows)], { gradescope: ['gradescope:2'] }).map((d) => d.id), ['a2']);
+  assert.equal(platformDdls([snapshot('gradescope', rows)], { gradescope: [] }).length, 0);
+});
+
+test('平台作业：个人修正优先于平台数据，隐藏的不显示', () => {
+  const rows = [assignment('a1', 'gradescope:1', at(0, 22, 0)), assignment('a2', 'gradescope:1', at(0, 23, 0))];
+  const out = platformDdls([snapshot('gradescope', rows)], {}, {
+    a1: { title: '改过的名字', dueAt: at(2, 8, 0), note: '记得带草图' },
+    a2: { hidden: true },
+  });
+  assert.deepEqual(out.map((d) => d.id), ['a1']);
+  assert.equal(out[0]?.title, '改过的名字');
+  assert.equal(out[0]?.dueAt, at(2, 8, 0));
+  assert.equal(out[0]?.description, '记得带草图');
+});
+
+test('平台作业：已提交或已评分算完成，个人修正可以覆盖回来', () => {
+  const out = platformDdls([snapshot('gradescope', [
+    assignment('a1', 'gradescope:1', at(0, 22, 0), 'submitted'),
+    assignment('a2', 'gradescope:1', at(0, 22, 0), 'graded'),
+    assignment('a3', 'gradescope:1', at(0, 22, 0), 'not_submitted'),
+  ])]);
+  assert.deepEqual(out.map((d) => d.done === true), [true, true, false]);
+  const reopened = platformDdls([snapshot('gradescope', [assignment('a1', 'gradescope:1', at(0, 22, 0), 'submitted')])], {}, { a1: { done: false } });
+  assert.equal(reopened[0]?.done, undefined);
+});
+
+test('平台作业：多个平台并进同一个列表，不改动传入的数组', () => {
+  const snapshots = [
+    snapshot('gradescope', [assignment('a1', 'gradescope:1', at(0, 22, 0))]),
+    snapshot('blackboard', [assignment('b1', 'blackboard:1', at(0, 21, 0))]),
+  ];
+  const before = JSON.stringify(snapshots);
+  const out = platformDdls(snapshots);
+  assert.equal(out.length, 2);
+  assert.equal(JSON.stringify(snapshots), before);
+  assert.deepEqual(sortByDue(out).map((d) => d.id), ['b1', 'a1']);
+});

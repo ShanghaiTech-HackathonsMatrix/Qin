@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && node src/app/home-cards.test.ts && node src/app/ddl-items.test.ts && node src/plugins/builtin/academic/academic.test.ts",
+    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && node src/app/home-cards.test.ts && node src/app/ddl-items.test.ts && node src/plugins/builtin/academic/academic.test.ts && node src/plugins/builtin/academic/simulate.test.ts",
     "check": "npm run test && tsc --noEmit",
     "sync": "vite build && cap sync",
     "sync:android": "vite build && cap sync android",

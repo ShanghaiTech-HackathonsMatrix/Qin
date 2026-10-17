@@ -1,5 +1,5 @@
 import type { SecureStore } from '../platform/strategies/kv/types';
-import { defaultHomeCards, normalizeHomeCards, type HomeCardConfig } from './home-cards';
+import { HOME_CARDS_VERSION, defaultHomeCards, migrateHomeCards, normalizeHomeCards, type HomeCardConfig } from './home-cards';
 
 export type Density = 'compact' | 'normal' | 'comfy';
 export type Layout = 'list' | 'cards';
@@ -29,6 +29,8 @@ export interface AppSettings {
   fontScale: number;
   /** 首页摆哪些卡片、什么顺序、多大 —— 见 app/home-cards.ts */
   homeCards: HomeCardConfig[];
+  /** 这份排布是按哪一版出厂排布迁移过来的。见 home-cards.ts 的 migrateHomeCards */
+  homeCardsVersion: number;
 }
 
 export const ACCENTS = ['#5b8cff', '#3ecf8e', '#f0b429', '#f2555a', '#a78bfa', '#22d3ee'];
@@ -47,6 +49,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   layout: 'list',
   fontScale: 1,
   homeCards: defaultHomeCards(true),
+  homeCardsVersion: HOME_CARDS_VERSION,
 };
 
 const KEY = 'app.settings';
@@ -61,7 +64,13 @@ export async function loadSettings(kv: SecureStore, demo = true): Promise<AppSet
       density: (p.density as Density) ?? DEFAULT_SETTINGS.density,
       layout: (p.layout as Layout) ?? DEFAULT_SETTINGS.layout,
       fontScale: normalizeFontScale(p.fontScale),
-      homeCards: normalizeHomeCards(p.homeCards, demo),
+      homeCards: migrateHomeCards(
+        normalizeHomeCards(p.homeCards, demo),
+        // 老版本的设置里没有这个字段，当成第 1 版
+        typeof p.homeCardsVersion === 'number' ? p.homeCardsVersion : 1,
+        demo,
+      ),
+      homeCardsVersion: HOME_CARDS_VERSION,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, homeCards: defaultHomeCards(demo) };

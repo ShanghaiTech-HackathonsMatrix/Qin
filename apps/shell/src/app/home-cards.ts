@@ -67,16 +67,15 @@ export const DEFAULT_HOME_CARDS: HomeCardConfig[] = [
 export function defaultHomeCards(demo: boolean): HomeCardConfig[] {
   if (demo) return DEFAULT_HOME_CARDS.map((c) => ({ ...c }));
   /*
-    真实模式：三张有真实数据的卡 + 插件控件区。
-    插件控件区（`widgets`）在没有课表时是一条「去导入 .ics」的引导，
-    首次使用要靠它，所以留在默认排布里；
-    图鉴是装饰性的，交给用户自己加。
+    真实模式：三张有真实数据的卡。
+    插件控件区（`widgets`）不再默认摆上来 —— 它当前唯一的内容是一张
+    「课程」卡，而课程已经有了自己的「课表」页，摆在首页是重复的。
+    想要的话在「定制 → 添加卡片」里加回来，路没堵死。
   */
   return [
     { id: 'hero', size: 'full' },
     { id: 'next-class', size: 'full' },
     { id: 'ddl', size: 'full' },
-    { id: 'widgets', size: 'full' },
   ];
 }
 
@@ -105,6 +104,37 @@ export function normalizeHomeCards(value: unknown, demo = true): HomeCardConfig[
 
   // 全删光了就退回出厂排布 —— 空白首页没有任何自救的入口
   return out.length > 0 ? out : defaultHomeCards(demo);
+}
+
+/**
+ * 出厂排布的迁移版本。
+ *
+ * 改出厂排布时要 +1，并在 `migrateHomeCards` 里补一条 —— 否则已经装过
+ * 应用的机器会一直用着存下来的旧排布，改了等于没改。
+ */
+export const HOME_CARDS_VERSION = 2;
+
+/**
+ * 把旧版本存下来的排布迁移到当前版本。
+ *
+ * 迁移只做**一次**：靠 `homeCardsVersion` 记着迁过没有。所以「摘掉某张卡」
+ * 不会被解释成「用户永远不能有这张卡」—— 之后在定制里加回来是用户的自由。
+ */
+export function migrateHomeCards(
+  cards: readonly HomeCardConfig[],
+  from: number,
+  demo: boolean,
+): HomeCardConfig[] {
+  let out = [...cards];
+  if (from < 2) {
+    /*
+      v2：课程有了自己的「课表」页。首页那张「插件卡片」当前唯一的内容
+      就是一张「课程」卡，同一件事在首页和课表页各说一遍，去掉。
+    */
+    const kept = out.filter((c) => c.id !== 'widgets');
+    out = kept.length > 0 ? kept : defaultHomeCards(demo);
+  }
+  return out;
 }
 
 /** 一整行算 2 格，半宽算 1 格。用来判断这一屏还装不装得下。 */

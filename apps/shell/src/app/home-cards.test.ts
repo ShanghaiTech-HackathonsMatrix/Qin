@@ -16,6 +16,7 @@ import {
   HOME_CARD_ORDER,
   HOME_WEIGHT_BUDGET,
   defaultHomeCards,
+  migrateHomeCards,
   homeCardWeight,
   normalizeHomeCards,
 } from './home-cards.ts';
@@ -111,12 +112,45 @@ test('多一张整宽就超预算 —— 首页要让位给滚动', () => {
   assert.ok(homeCardWeight(extra) > HOME_WEIGHT_BUDGET);
 });
 
-test('真实模式的出厂排布：有数据的卡 + 插件控件区', () => {
+test('真实模式的出厂排布：只留三张有数据的卡', () => {
   const ids = defaultHomeCards(false).map((c) => c.id);
   assert.ok(ids.includes('ddl'), 'DDL 卡已接上核心任务，该有默认位置');
-  assert.ok(ids.includes('widgets'), '插件控件区要有个默认位置（首次使用靠它引导导入课表）');
+  assert.ok(ids.includes('next-class'), '下一节课是首页最该先看到的一条');
   assert.ok(!ids.includes('atlas'), '图鉴是装饰性的，留给用户自己加');
+  /*
+    插件控件区（`widgets`）**不再默认摆上来**：它当前唯一的内容是一张「课程」卡，
+    而课程已经有了独立的「课表」页，摆在首页是同一件事说两遍。
+    它仍然在可选列表里 —— 下面这条断言就是在钉住「路没堵死」。
+  */
+  assert.ok(!ids.includes('widgets'), '课程卡不该占着首页，课程已经进了课表页');
+  assert.ok(HOME_CARD_ORDER.includes('widgets'), '但用户仍然可以自己把它加回来');
   assert.ok(homeCardWeight(defaultHomeCards(false)) <= HOME_WEIGHT_BUDGET);
+});
+
+test('v1 排布迁移：摘掉插件卡片，其余原样保留', () => {
+  const old = normalizeHomeCards([
+    { id: 'hero', size: 'full' },
+    { id: 'widgets', size: 'full' },
+    { id: 'ddl', size: 'half' },
+  ], false);
+  const migrated = migrateHomeCards(old, 1, false);
+  assert.deepEqual(migrated.map((c) => c.id), ['hero', 'ddl']);
+  assert.equal(migrated[1].size, 'half', '迁移不能顺手改用户调过的尺寸');
+});
+
+test('迁过的不再摘：用户之后自己加回来就一直是他的', () => {
+  const withWidgets = normalizeHomeCards([
+    { id: 'hero', size: 'full' },
+    { id: 'widgets', size: 'full' },
+  ], false);
+  assert.deepEqual(migrateHomeCards(withWidgets, 2, false).map((c) => c.id), ['hero', 'widgets']);
+});
+
+test('迁移后一张不剩就退回出厂排布，不给空白首页', () => {
+  const onlyWidgets = normalizeHomeCards([{ id: 'widgets', size: 'full' }], false);
+  const migrated = migrateHomeCards(onlyWidgets, 1, false);
+  assert.ok(migrated.length > 0);
+  assert.ok(!migrated.some((c) => c.id === 'widgets'));
 });
 
 test('脏输入在真实模式下也退回真实模式的出厂排布', () => {

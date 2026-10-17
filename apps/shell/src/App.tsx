@@ -11,7 +11,7 @@ import { uid } from './app/format';
 import { createDemoData, type DemoClassSession } from './app/demo-data';
 import ScheduleView, { atDay, buildScheduleDays, dayLabelOf, hhmm, type ScheduleEntry } from './views/ScheduleView';
 import TimelineViewPlaceholder from './views/TimelineView';
-// 手写时间线视图已由插件页面取代（见「时间线」标签的 `PageView`）。
+// 手写时间线视图已由插件页面取代；那一页现在只从插件槽读数据，宿主不再画。
 // 保留导入只为让文件继续参与类型检查 —— 里面的分组逻辑将来可能被文档归并。
 void TimelineViewPlaceholder;
 import CoursesView from './views/CoursesView';
@@ -19,6 +19,8 @@ import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
+import TimetableView from './views/TimetableView';
+import { buildWeekDays, lessonCount, teachingWeek } from './app/timetable';
 import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, sortByDue, type DdlItem } from './app/ddl-items';
 import AssignmentSheet, { type AssignmentDraft } from './components/AssignmentSheet';
 import SwipeRow from './components/SwipeRow';
@@ -35,13 +37,13 @@ import {
 } from './app/home-cards';
 import DebugPanel from './components/DebugPanel';
 import { LayoutStore } from './ui/layout';
-import { PageView, WidgetPage } from './ui/WidgetPage';
-import { PLUGIN_ID as TIMELINE_PLUGIN_ID, SLOT_NAME } from './plugins/builtin/timeline/constants';
+import { WidgetPage } from './ui/WidgetPage';
+import { SLOT_NAME } from './plugins/builtin/timeline/constants';
 import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
 import type { CourseCard, CourseDraft } from './core/course-cards';
 import { MatrixNotify } from '@matrix/capacitor-notify';
 
-type Tab = 'home' | 'timeline' | 'courses' | 'settings';
+type Tab = 'home' | 'timeline' | 'timetable' | 'courses' | 'settings';
 const DEMO_MODE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1';
 const DEMO_DATA = DEMO_MODE ? createDemoData() : null;
 
@@ -74,7 +76,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     if (!DEMO_MODE) return 'home';
     const requested = new URLSearchParams(window.location.search).get('page');
-    return requested === 'timeline' || requested === 'courses' || requested === 'settings' ? requested : 'home';
+    return requested === 'timeline' || requested === 'timetable' || requested === 'courses' || requested === 'settings' ? requested : 'home';
   });
   const [debugOpen, setDebugOpen] = useState(false);
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
@@ -565,6 +567,33 @@ export default function App() {
   /** 有没有同步到真数据。有的话演示用的虚构样本让位 —— 两套并存只会互相打架 */
   const hasAcademic = academicSnapshots.length > 0;
 
+  /**
+   * 周课表。
+   *
+   * 数据来自教务同步回来的课时规则（`rules`）加上课表设置里的节次表，
+   * 在 `app/timetable.ts` 里摊成一周七天 —— 那部分全是日期算术，能单独测。
+   * `weekOffset` 是相对本周的偏移，翻周只改这个数，不碰数据。
+   */
+  const [weekOffset, setWeekOffset] = useState(0);
+  const timetable = useMemo(() => {
+    if (platform === null) return null;
+    const settings = platform.academic.settings;
+    const rules = academicSnapshots.flatMap((snap) => snap.rules ?? []);
+    const current = teachingWeek(settings.weekOne, nowMs);
+    if (current === null) return { week: 0, totalWeeks: settings.totalWeeks, days: [], synced: rules.length > 0 };
+    // 夹在学期内：翻过头就停在第一周/最后一周，而不是给一片空白
+    const week = Math.min(Math.max(1, current + weekOffset), Math.max(1, settings.totalWeeks));
+    const days = buildWeekDays({
+      rules,
+      periods: settings.periods,
+      week,
+      weekOne: settings.weekOne,
+      now: nowMs,
+      showWeekend: settings.showWeekend,
+    });
+    return { week, totalWeeks: settings.totalWeeks, days, synced: rules.length > 0 };
+  }, [platform, academicSnapshots, academicTick, nowMs, weekOffset]);
+
   /** 从三个学习平台拉回来的作业，形状和本机任务完全一样 */
   const platformItems = useMemo<DdlItem[]>(
     () => (platform === null
@@ -630,6 +659,13 @@ const TAB_ICONS = {
       <rect x="4" y="6" width="16" height="14" rx="2.5" />
       <path d="M4 10.5h16M8.5 4v3.5M15.5 4v3.5" />
       <path d="M8.5 14.5h3" />
+    </>
+  ),
+  // 方格：课表
+  timetable: (
+    <>
+      <rect x="4" y="5.5" width="16" height="13.5" rx="2" />
+      <path d="M4 10.5h16M9.6 10.5v8.5M14.4 10.5v8.5" />
     </>
   ),
   // 行囊：设置
@@ -909,7 +945,7 @@ const TAB_ICONS = {
 
   // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
   const goTab = useCallback((to: string) => {
-    setTab(to === 'timeline' || to === 'courses' || to === 'settings' ? to : 'home');
+    setTab(to === 'timeline' || to === 'timetable' || to === 'courses' || to === 'settings' ? to : 'home');
   }, []);
 
   // ---------------------------------------------------------------- 渲染
@@ -1101,7 +1137,7 @@ const TAB_ICONS = {
           <span className="topbar__sigil" aria-hidden="true">✳</span>
           <div>
             <div className="topbar__title">秦 <span>/ QIN</span></div>
-            <div className="topbar__sub">{tab === 'home' ? '冒险日志' : tab === 'timeline' ? '任务日志' : tab === 'courses' ? '每日日程' : '行囊设置'}</div>
+            <div className="topbar__sub">{tab === 'home' ? '冒险日志' : tab === 'timeline' ? '任务日志' : tab === 'timetable' ? '每周课表' : tab === 'courses' ? '每日日程' : '行囊设置'}</div>
           </div>
         </div>
         <div className="topbar__spacer" />
@@ -1311,24 +1347,38 @@ const TAB_ICONS = {
                 </div>
               </>
             )}
+          </>
+        )}
 
-            {/*
-              插件自己声明的「时间线」页面仍然留着，收在折叠区里。
-              新的日志列表是宿主层视图，但插件那条路是项目的架构承诺 ——
-              直接删掉等于把「插件能贡献整页 UI」这个能力从应用里摘了。
-            */}
-            {!DEMO_MODE && (
-              <details className="plugin-page">
-                <summary>插件视图（时间线）</summary>
-                <PageView
-                  host={p.plugins}
-                  pluginId={TIMELINE_PLUGIN_ID}
-                  viewId="timeline"
-                  onNavigate={goTab}
-                  // 命令改了核心任务后，App 的 tasks/courseCards 要重新读一遍
-                  onDataChanged={() => void reload()}
-                />
-              </details>
+        {tab === 'timetable' && (
+          <>
+            <div className="quest-section__head quest-section__head--spaced">
+              <h2>每周课表</h2>
+              <span className="quest-section__ornament">
+                {timetable === null || timetable.days.length === 0
+                  ? '还没有课表'
+                  : `这周 ${lessonCount(timetable.days)} 节`}
+              </span>
+            </div>
+            {timetable === null ? (
+              <div className="home-empty">课表还没就绪。</div>
+            ) : timetable.week === 0 ? (
+              <div className="home-empty">
+                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 课表基准」填一下第 1 教学周的周一。
+              </div>
+            ) : (
+              <TimetableView
+                days={timetable.days}
+                week={timetable.week}
+                totalWeeks={timetable.totalWeeks}
+                weekOffset={weekOffset}
+                onWeekChange={setWeekOffset}
+                emptyText={
+                  timetable.synced
+                    ? '这一周没有排课，翻到别的周看看。'
+                    : '还没同步到课表。去「设置 → 平台连接」登录教务课表并同步。'
+                }
+              />
             )}
           </>
         )}
@@ -1394,6 +1444,7 @@ const TAB_ICONS = {
         {([
           ['home', '首页', TAB_ICONS.home],
           ['timeline', `任务${openCount ? ` · ${openCount}` : ''}`, TAB_ICONS.timeline],
+        ['timetable', '课表', TAB_ICONS.timetable],
           ['courses', '日程', TAB_ICONS.courses],
           ['settings', '设置', TAB_ICONS.settings],
         ] as const).map(([id, label, icon]) => (

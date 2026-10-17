@@ -146,11 +146,31 @@ export interface PlatformAssignment {
   status: 'unknown' | 'not_submitted' | 'submitted' | 'graded';
 }
 
+/**
+ * 课时规则的最小形状 —— 周课表要的就是这几个字段。
+ * 和 `PlatformAssignment` 一样只做结构描述，不 import 插件类型。
+ */
+export interface PlatformLessonRule {
+  id: string;
+  title: string;
+  teacher?: string;
+  location?: string;
+  weekday: number;
+  first: number;
+  last: number;
+  weeks: readonly number[];
+}
+
 export interface PlatformSnapshot {
   provider: string;
   syncedAt: number;
   courses: readonly { id: string; title: string }[];
   assignments: readonly PlatformAssignment[];
+  /**
+   * 排课。只有教务课表那个平台有，Gradescope / 互动教学平台给的是作业，
+   * 所以这里必须是可选的 —— 否则另外两个快照类型对不上。
+   */
+  rules?: readonly PlatformLessonRule[];
 }
 
 /** 用户对平台数据的「个人修正」—— 只改本应用里的显示，不动平台原文 */

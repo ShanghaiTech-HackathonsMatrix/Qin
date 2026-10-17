@@ -1,7 +1,7 @@
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // 恢复默认，再从干净状态开始
-  [...document.querySelectorAll('.topbar button')].find((b) => b.textContent.trim() === '定制').click();
+  document.querySelector('.topbar .btn--brush').click();
   await sleep(300);
   document.querySelector('.home-slot--add').click();
   await sleep(300);
@@ -17,10 +17,9 @@
   await sleep(500);
   document.querySelector('.sheet__head button').click();
   await sleep(300);
-  const idx = [...document.querySelectorAll('.home-slot[data-card]')].findIndex((e) => e.dataset.card === 'next-class');
-  [...document.querySelectorAll('.home-slot__bar')][idx].querySelector('.icon-btn--wide').click();
+  document.querySelector('.home-slot[data-card="next-class"]').querySelector('.icon-btn--wide').click();
   await sleep(500);
-  [...document.querySelectorAll('.topbar button')].find((b) => b.textContent.trim() === '完成').click();
+  document.querySelector('.topbar .btn--brush').click();
   await sleep(300);
 
   const snap = () => {

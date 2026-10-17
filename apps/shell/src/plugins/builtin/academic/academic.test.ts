@@ -211,3 +211,31 @@ test('错误码翻译成人话：EREDIRECT 要说「重新登录」',()=>{
   assert.match(explainSyncError('page-1: EREDIRECT 跳转目标不在白名单'),/重新点「登录」/);
   assert.match(explainSyncError('插件 x 的 parsers.page() 抛出异常: LOGIN_REQUIRED：登录已过期'),/重新登录/);
 });
+
+test('单页失败不再中断串行扫描：后面的页面照样扫，快照照样落',async()=>{
+  /*
+    这条钉的是一个真实事故：学术连接器一轮只发一个请求，靠 `next()` 从自己的
+    队列里取下一页。原来 `next()` 只在解析成功时被调用，于是某一页请求失败后，
+    队列里剩下的页面再也没人问起 —— 扫描在中间悄悄停住，`finish()` 从没跑过，
+    一个实体都没落，报告里却只有一条「可容忍」的传输错误。
+  */
+  const transport=new MockTransport();
+  const core=createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.blackboard).hostname],retryCount:0}}});
+  const host=new PluginHost({core,modules:new Map([[PLUGIN_IDS.blackboard,createConnector('blackboard')]])});
+  assert.ok((await host.install(connectorManifest('blackboard'),{allowReservedPrefix:true})).ok);
+
+  const origin=new URL(ENTRY.blackboard).origin;
+  // 连接器会把查询参数排序（canonical），这里直接按排序后的形状排应答
+  const courseUrl=(id:string)=>`${origin}/webapps/blackboard/execute/launcher?course_id=${id}&id=${id}&type=Course`;
+  const portal='<a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1&course_id=_1_1">操作系统</a>'
+    +'<a href="/webapps/blackboard/execute/launcher?type=Course&id=_2_1&course_id=_2_1">算法设计</a>';
+  transport.queue(ENTRY.blackboard,{status:200,body:portal});
+  // 第一门课的网络直接断掉，第二门课正常
+  transport.queue(courseUrl('_1_1'),{status:0,throw:'SocketTimeoutException'});
+  transport.queue(courseUrl('_2_1'),{status:200,body:'<html><body>这门课没有作业</body></html>'});
+
+  const result=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:Date.now()});
+  assert.ok(result.ok,'一页失败不该让整轮失败');
+  assert.equal(result.data.entities,1,'快照必须落库 —— 否则用户看到的就是「未得到有效数据」');
+  assert.match(result.data.errors.join(' '),/page-2: ENET /,'失败的那一页要留在报告里');
+});

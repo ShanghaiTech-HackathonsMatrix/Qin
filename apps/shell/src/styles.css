@@ -895,15 +895,41 @@ body, .app { background: #f7f7f3; color: #111; }
 .home-slot[data-size='half'] .demo-atlas__tile { min-height: 0; }
 
 /* ---------------------------------------------------------- 定制编辑态 */
-.home-slot__bar { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; padding: 3px 5px 3px 3px; background: #111; color: #fff; border-radius: 7px 9px 6px 8px; font-size: calc(11px * var(--font-base) * var(--font-scale)); }
-.home-slot__handle { padding: 2px 5px; background: transparent; color: #fff; border: 0; font: inherit; font-size: calc(14px * var(--font-base) * var(--font-scale)); line-height: 1; cursor: grab; touch-action: none; }
-.home-slot__handle:active { cursor: grabbing; }
-.home-slot__name { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.home-slot__tools { display: flex; gap: 3px; }
+/*
+  定制态**没有「拖动栏」**：整张卡就是抓手（`.home-slot__grab`），
+  右上角只浮着「半宽/整宽」和「×」两颗小按钮。
+  卡片这时候是「活的」，所以给它一圈虚线，明确现在可以拖、可以删。
+*/
+.home-grid[data-editing='true'] > .home-slot[data-card] {
+  position: relative;
+  outline: 1.5px dashed #b9b9b1;
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+/*
+  透明抓手：盖住整张卡接住手指与鼠标。
+  `touch-action: pan-y` 是刻意的 —— 没按住之前纵向滑动仍然是滚页面，
+  拿起之后由 JS 在 touchmove 里 preventDefault 接管（React 的 touch 是 passive 的，拦不住）。
+*/
+.home-slot__grab {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  cursor: grab;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.home-slot__grab:active { cursor: grabbing; }
+.home-slot__tools { position: absolute; top: 5px; right: 5px; z-index: 3; display: flex; gap: 3px; }
+.home-slot__tools .icon-btn { box-shadow: 0 1px 4px rgba(0, 0, 0, .18); }
 .icon-btn { min-width: 24px; height: 24px; padding: 0 5px; background: #fff; color: #111; border: 1px solid #111; border-radius: 4px; font: inherit; font-size: calc(12px * var(--font-base) * var(--font-scale)); line-height: 1; cursor: pointer; }
 .icon-btn--wide { font-size: calc(10px * var(--font-base) * var(--font-scale)); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
-.home-slot[data-dragging='true'] { opacity: .55; outline: 2px dashed #111; outline-offset: 3px; }
+/* 拿起来的那一张：压淡 + 实线框，让人看清「正在搬的是这张」 */
+.home-grid[data-editing='true'] > .home-slot[data-dragging='true'] { opacity: .5; outline: 2px dashed #111; outline-offset: 3px; }
 .home-slot--add { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 13px; background: #fff; color: #111; border: 1.5px dashed #111; border-radius: 9px 11px 8px 10px; font: inherit; font-size: calc(13px * var(--font-base) * var(--font-scale)); cursor: pointer; }
 .slider { display: flex; align-items: center; gap: 10px; }
 .slider input[type='range'] {
@@ -981,7 +1007,9 @@ body, .app { background: #f7f7f3; color: #111; }
 .home-slot--gap { display: flex; align-items: center; justify-content: center; min-height: 56px; color: #9a9a94; border: 1.5px dashed #d5d5cf; border-radius: 8px; font-size: calc(11px * var(--font-base) * var(--font-scale)); }
 .quick__state { font-size: calc(10px * var(--font-base) * var(--font-scale)); color: #555; white-space: nowrap; }
 .quick__option[data-on='true'] { opacity: .5; cursor: default; }
-/* 顶栏「定制」按钮按下时反白，提示当前处于编辑态 */
+/* 顶栏那颗刷子：进入定制时反白，提示当前处于编辑态 */
+.btn--brush { display: inline-flex; align-items: center; gap: 5px; }
+.btn__icon { display: block; width: 1.15em; height: 1.15em; }
 .btn[data-active='true'] { background: #111; color: #fff; border-color: #111; }
 
 /* 任务页底部折叠起来的插件页面（架构承诺留着，但不占主视线） */

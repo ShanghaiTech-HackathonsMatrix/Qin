@@ -2,8 +2,10 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const pick = (text) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
   const pickCard = (name) => [...document.querySelectorAll('.quick__option')].find((b) => b.querySelector('strong')?.textContent === name);
+  // 定制入口是顶栏那颗刷子（只有它在编辑态才带「完成」两个字）
+  const brush = () => document.querySelector('.topbar .btn--brush');
 
-  pick('定制').click();
+  brush().click();
   await sleep(300);
 
   // 加「本周日程」
@@ -16,14 +18,12 @@
 
   // 「下一节课」和「最近的 DDL」并排成半宽
   for (const id of ['next-class', 'ddl']) {
-    const idx = [...document.querySelectorAll('.home-slot[data-card]')].findIndex((e) => e.dataset.card === id);
-    [...document.querySelectorAll('.home-slot__bar')][idx].querySelector('.icon-btn--wide').click();
+    document.querySelector('.home-slot[data-card="' + id + '"]').querySelector('.icon-btn--wide').click();
     await sleep(400);
   }
 
   // 「冒险图鉴」也切半宽，让它跟后面那张并排
-  const idxAtlas = [...document.querySelectorAll('.home-slot[data-card]')].findIndex((e) => e.dataset.card === 'atlas');
-  [...document.querySelectorAll('.home-slot__bar')][idxAtlas].querySelector('.icon-btn--wide').click();
+  document.querySelector('.home-slot[data-card="atlas"]').querySelector('.icon-btn--wide').click();
   await sleep(400);
 
   const slots = [...document.querySelectorAll('.home-slot[data-card]')].map((el) => {

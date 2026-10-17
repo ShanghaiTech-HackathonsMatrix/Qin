@@ -1,9 +1,8 @@
 (async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const pick = (text) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
   const pickCard = (name) => [...document.querySelectorAll('.quick__option')].find((b) => b.querySelector('strong')?.textContent === name);
 
-  pick('定制').click();
+  document.querySelector('.topbar .btn--brush').click();
   await sleep(300);
 
   document.querySelector('.home-slot--add').click();
@@ -14,13 +13,13 @@
   await sleep(300);
 
   for (const id of ['next-class', 'ddl', 'atlas']) {
-    const idx = [...document.querySelectorAll('.home-slot[data-card]')].findIndex((e) => e.dataset.card === id);
-    [...document.querySelectorAll('.home-slot__bar')][idx].querySelector('.icon-btn--wide').click();
+    document.querySelector('.home-slot[data-card="' + id + '"]').querySelector('.icon-btn--wide').click();
     await sleep(400);
   }
 
   const gap = document.querySelectorAll('.home-slot--gap').length;
-  pick('完成').click();
+  // 退出定制：还是顶栏那颗刷子
+  document.querySelector('.topbar .btn--brush').click();
   await sleep(400);
 
   const slots = [...document.querySelectorAll('.home-slot[data-card]')].map((el) => {

@@ -19,6 +19,7 @@ import {
   migrateHomeCards,
   homeCardWeight,
   normalizeHomeCards,
+  pickDropIndex,
 } from './home-cards.ts';
 
 let passed = 0;
@@ -155,6 +156,51 @@ test('迁移后一张不剩就退回出厂排布，不给空白首页', () => {
 
 test('脏输入在真实模式下也退回真实模式的出厂排布', () => {
   assert.deepEqual(normalizeHomeCards(null, false), defaultHomeCards(false));
+});
+
+console.log('\n首页卡片：拖动落点');
+/*
+  这几条钉的是「手指压在哪张卡上」。定制态下整张卡都能拖，每动一下就问
+  一次这个函数，所以它错一格，用户看到的就是「拖 A 动了 B」。
+  它跟 React、跟指针事件都没关系，正是该在这里测的那种逻辑。
+*/
+
+const rect = (left: number, top: number, right: number, bottom: number) => ({ left, top, right, bottom });
+
+test('点在卡里就是那张卡', () => {
+  const rects = [rect(0, 0, 360, 100), rect(0, 100, 360, 200)];
+  assert.equal(pickDropIndex(rects, 180, 50), 0);
+  assert.equal(pickDropIndex(rects, 180, 150), 1);
+});
+
+test('同一行左右两张半宽卡：横着拖也能换位', () => {
+  // 只看 Y 的判定在这里会永远返回 0，卡片就再也换不了位
+  const rects = [rect(0, 0, 180, 100), rect(180, 0, 360, 100)];
+  assert.equal(pickDropIndex(rects, 60, 50), 0);
+  assert.equal(pickDropIndex(rects, 300, 50), 1);
+});
+
+test('边界点算在卡里（左闭右闭），不会掉进「哪儿都不是」', () => {
+  const rects = [rect(0, 0, 100, 100), rect(0, 100, 100, 200)];
+  assert.equal(pickDropIndex(rects, 0, 0), 0);
+  assert.equal(pickDropIndex(rects, 100, 100), 0);
+});
+
+test('落在卡片之间的缝里就取最近的那张，不返回 -1', () => {
+  // 缝里松手应该是「就近落下」，而不是「这次拖动白做」
+  const rects = [rect(0, 0, 100, 100), rect(0, 120, 100, 220)];
+  assert.equal(pickDropIndex(rects, 50, 105), 0);
+  assert.equal(pickDropIndex(rects, 50, 115), 1);
+});
+
+test('拖到列表上方的空白处 → 落到第一张，拖到下方 → 落到最后一张', () => {
+  const rects = [rect(0, 100, 100, 200), rect(0, 200, 100, 300)];
+  assert.equal(pickDropIndex(rects, 50, 0), 0);
+  assert.equal(pickDropIndex(rects, 50, 999), 1);
+});
+
+test('一张卡都没有时返回 -1，调用方据此什么都不做', () => {
+  assert.equal(pickDropIndex([], 10, 10), -1);
 });
 
 console.log(

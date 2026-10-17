@@ -137,6 +137,48 @@ export function migrateHomeCards(
   return out;
 }
 
+/** 一张卡在屏幕上的矩形 —— `getBoundingClientRect()` 里判定要用的那四个数。 */
+export interface SlotRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * 手指（或鼠标）当前压在第几张卡上。`-1` = 一张卡都没沾到。
+ *
+ * 拖动排序时每动一下就问它一次，所以判定必须是**纯函数**：
+ * 这里错一格，用户看到的就是「拖 A 动了 B」，而这件事跟 React、
+ * 跟指针事件都无关，可以在 Node 里直接钉住。
+ *
+ * 两条规则合起来用，缺一条都会出事：
+ *   · **先看命中框** —— 点在某张卡里就是它。只按 Y 判的话，
+ *     同一行左右两张半宽卡 Y 完全一样，横着拖过去永远不换位。
+ *   · **没命中就取中心最近的那张** —— 手指落在卡片之间的缝里、
+ *     或者拖到列表上方的空白处时，总得有个落点；
+ *     返回 -1 等于「拖到缝里就松手不算」，手感会莫名其妙地断掉。
+ */
+export function pickDropIndex(rects: readonly SlotRect[], x: number, y: number): number {
+  let nearest = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < rects.length; i += 1) {
+    const r = rects[i]!;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+
+    const dx = x - (r.left + r.right) / 2;
+    const dy = y - (r.top + r.bottom) / 2;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearest = i;
+    }
+  }
+
+  return nearest;
+}
+
 /** 一整行算 2 格，半宽算 1 格。用来判断这一屏还装不装得下。 */
 export function homeCardWeight(cards: readonly HomeCardConfig[]): number {
   return cards.reduce((n, c) => n + (c.size === 'half' ? 1 : 2), 0);

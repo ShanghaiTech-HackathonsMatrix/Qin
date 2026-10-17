@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { EVENT_KIND_LABEL, type Course, type Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
@@ -31,6 +31,7 @@ import {
   defaultHomeCards,
   homeCardWeight,
   normalizeHomeCards,
+  pickDropIndex,
   type HomeCardConfig,
   type HomeCardId,
   type HomeCardSize,
@@ -46,6 +47,14 @@ import { MatrixNotify } from '@matrix/capacitor-notify';
 type Tab = 'home' | 'timeline' | 'timetable' | 'courses' | 'settings';
 const DEMO_MODE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1';
 const DEMO_DATA = DEMO_MODE ? createDemoData() : null;
+
+/**
+ * 首页定制：按住多久才算「拿起这张卡」。
+ *
+ * 卡片占满整屏，所以不能一按就拖 —— 那样手指落在卡上就再也滚不了页面。
+ * 0.2 秒是手机桌面那种手感：轻扫还是滚动，按住不动才把卡拿起来。
+ */
+const HOME_LIFT_MS = 200;
 
 /** 演示课次 → epoch。放在组件外，`useMemo` 里就不用每次重建函数 */
 const demoSessionEpoch = (
@@ -411,34 +420,93 @@ export default function App() {
     commitHomeCards([...homeCards, { id, size: 'full' }]);
   }, [homeCards, commitHomeCards]);
 
-  const startDrag = useCallback((event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
-    event.preventDefault();
-    setDragIndex(index);
+  /** 还没拿起来的那一下：定时器 + 起点，手指一移出半径就作废 */
+  const pressRef = useRef<{ timer: number; x: number; y: number; off: () => void } | null>(null);
+
+  const cancelPress = useCallback(() => {
+    const press = pressRef.current;
+    if (press === null) return;
+    window.clearTimeout(press.timer);
+    press.off();
+    pressRef.current = null;
   }, []);
 
   /*
-    拖拽排序用指针事件而不是 HTML5 拖放：
-    HTML5 DnD 在触屏上根本不触发，而这是个手机应用。
-    拖动时**实时**重排（不是松手才生效）—— 手指底下卡片跟着走才算拖得动。
+    定制态下**整张卡就是抓手**。
+
+    以前每张卡头顶顶一条黑色拖动栏，只有栏里那个 ⠿ 能拖 —— 手机上那条栏
+    既吃掉卡片高度，又要求手指精确落在一个二十几像素的方块上。
+    现在按住卡片任意位置就能拖，那一栏整个删掉了。
+
+    拖拽排序用指针事件而不是 HTML5 拖放：HTML5 DnD 在触屏上根本不触发，
+    而这是个手机应用。拖动时**实时**重排（不是松手才生效）——
+    手指底下卡片跟着走才算拖得动。
   */
+  const startPress = useCallback((event: ReactPointerEvent<HTMLDivElement>, index: number) => {
+    // 鼠标没有「长按」这回事，按下就算拿起
+    if (event.pointerType === 'mouse') {
+      event.preventDefault();
+      setDragIndex(index);
+      return;
+    }
+
+    const x = event.clientX;
+    const y = event.clientY;
+    cancelPress();
+
+    // 手指在按住之前就动了 —— 那是在滚页面，不是在拿卡片
+    const onMove = (move: PointerEvent) => {
+      if (Math.abs(move.clientX - x) > 8 || Math.abs(move.clientY - y) > 8) cancelPress();
+    };
+    const off = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cancelPress);
+      window.removeEventListener('pointercancel', cancelPress);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', cancelPress);
+    window.addEventListener('pointercancel', cancelPress);
+
+    const timer = window.setTimeout(() => {
+      pressRef.current = null;
+      off();
+      setDragIndex(index);
+    }, HOME_LIFT_MS);
+
+    pressRef.current = { timer, x, y, off };
+  }, [cancelPress]);
+
+  // 中途离开（切页、卸载）时别把定时器和 window 监听留在那儿
+  useEffect(() => cancelPress, [cancelPress]);
+
   useEffect(() => {
     if (dragIndex === null) return;
+
+    /*
+      拿起之后手指就是在拖卡片，这一下不能再让页面跟着滚。
+      触屏上拦滚动只能在 touchmove 里 preventDefault，而 React 的
+      touch 事件是 passive 的、拦不住，所以这里挂原生监听。
+    */
+    const blockScroll = (event: TouchEvent) => event.preventDefault();
+
     const onMove = (event: PointerEvent) => {
-      const slots = [...document.querySelectorAll('.home-slot[data-card]')];
-      const target = slots.findIndex((el) => {
-        const r = el.getBoundingClientRect();
-        return event.clientY >= r.top && event.clientY <= r.bottom;
-      });
+      const rects = [...document.querySelectorAll<HTMLElement>('.home-slot[data-card]')]
+        .map((el) => el.getBoundingClientRect());
+      const target = pickDropIndex(rects, event.clientX, event.clientY);
       if (target !== -1 && target !== dragIndex) {
         moveCard(dragIndex, target);
         setDragIndex(target);
       }
     };
     const stop = () => setDragIndex(null);
+
+    document.addEventListener('touchmove', blockScroll, { passive: false });
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', stop);
     window.addEventListener('pointercancel', stop);
     return () => {
+      document.removeEventListener('touchmove', blockScroll);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', stop);
       window.removeEventListener('pointercancel', stop);
@@ -1142,8 +1210,32 @@ const TAB_ICONS = {
         </div>
         <div className="topbar__spacer" />
         {tab === 'home' && (
-          <button className="btn btn--sm" data-active={homeEditing} onClick={() => setHomeEditing((v) => !v)}>
-            {homeEditing ? '完成' : '定制'}
+          /*
+            顶栏这颗刷子 = 进入 / 退出定制。
+
+            以前它是「定制 / 完成」两个字的按钮。现在只剩一个图标：
+            定制这件事的意思是「把这张首页改一改」，刷子比一行字更直白，
+            也把顶栏让给真正的内容。正在定制时按钮反白、并补回「完成」两个字 ——
+            不补的话，退出这件事只能靠猜。
+          */
+          <button
+            className="btn btn--sm btn--brush"
+            data-active={homeEditing}
+            aria-pressed={homeEditing}
+            aria-label={homeEditing ? '完成定制' : '定制首页'}
+            onClick={() => {
+              cancelPress();
+              setDragIndex(null);
+              setHomeEditing((v) => !v);
+            }}
+          >
+            <svg className="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {/* 笔杆、金属箍、刷毛 —— 全是线，和首页那张手绘人物同一套画法 */}
+              <path d="M19.6 3.6 12.7 10.5" strokeWidth="2.6" />
+              <path d="M11.2 9.4 14.6 12.8" />
+              <path d="M11.4 9.6c-2-.4-4.1.5-5.2 2.2-.7 1.1-1.7 1.9-2.9 2.2 1 2 3.2 3.2 5.5 2.8 2.7-.4 4.6-2.8 4.4-5.5z" />
+            </svg>
+            {homeEditing && <span>完成</span>}
           </button>
         )}
         {tab === 'timeline' && (
@@ -1194,26 +1286,37 @@ const TAB_ICONS = {
                   data-dragging={dragIndex === index}
                 >
                   {homeEditing && (
-                    <div className="home-slot__bar">
-                      <button
-                        className="home-slot__handle"
-                        aria-label={`拖动「${meta.name}」`}
-                        onPointerDown={(event) => startDrag(event, index)}
-                      >
-                        <span aria-hidden="true">⠿</span>
-                      </button>
-                      <span className="home-slot__name">{meta.name}</span>
-                      <span className="home-slot__tools">
-                        <button className="icon-btn" aria-label="上移" disabled={index === 0} onClick={() => moveCard(index, index - 1)}>↑</button>
-                        <button className="icon-btn" aria-label="下移" disabled={index === visibleHomeCards.length - 1} onClick={() => moveCard(index, index + 1)}>↓</button>
+                    <>
+                      {/*
+                        透明抓手：定制态下**整张卡都能拖**，卡片自己的按钮被它一并挡住 ——
+                        否则「点一下看看这张卡」会在拖卡片的路上把人带进任务编辑器。
+                        定制态里卡内的一切都不可点，是这一层顺手定下的规则。
+                      */}
+                      <div
+                        className="home-slot__grab"
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={`按住拖动「${meta.name}」`}
+                        onPointerDown={(event) => startPress(event, index)}
+                        onPointerUp={cancelPress}
+                        onPointerCancel={cancelPress}
+                        onContextMenu={(event) => event.preventDefault()}
+                      />
+                      {/*
+                        以前这里是一条黑色拖动栏：⠿ + 卡名 + 上移/下移 + 尺寸 + ×。
+                        栏删掉之后，真正还得留的只有「多大」和「删掉」两颗，
+                        做成浮在右上角的小按钮 —— 不占高度，也不挡拖动。
+                        上移/下移撤了：整张卡都能拖，那两个箭头是同一件事的第二条路。
+                      */}
+                      <div className="home-slot__tools">
                         {meta.fullOnly !== true && (
-                          <button className="icon-btn icon-btn--wide" aria-label="切换整宽与半宽" onClick={() => resizeCard(index)}>
+                          <button className="icon-btn icon-btn--wide" aria-label={`「${meta.name}」切换整宽与半宽`} onClick={() => resizeCard(index)}>
                             {card.size === 'half' ? '半宽' : '整宽'}
                           </button>
                         )}
-                        <button className="icon-btn" aria-label="移除卡片" onClick={() => removeCard(index)}>×</button>
-                      </span>
-                    </div>
+                        <button className="icon-btn" aria-label={`移除「${meta.name}」`} onClick={() => removeCard(index)}>×</button>
+                      </div>
+                    </>
                   )}
                   {renderHomeCard(card.id, card.size)}
                 </section>

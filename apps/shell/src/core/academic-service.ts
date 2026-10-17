@@ -86,19 +86,20 @@ export class AcademicService {
       const previous=this.snapshots;
       this.readSnapshots();this.migrateLessonCorrections(previous);
       const snap=this.snapshots.find(x=>x.provider===provider);
-      if(!snap) throw new Error('本次未得到有效数据，保留上次结果');
       /*
-        容忍单页失败之后要防一个新的坑：如果**整轮一个页面都没回来**，这一轮
-        根本没写新快照，`readSnapshots()` 读到的是上一轮的旧数据 —— 这时候报
-        「同步成功」就是在骗人。`syncedAt` 是本轮写进去的，对不上就是旧的。
+        顺序要紧：**先**判断「这一轮到底有没有写进新快照」，**再**判断「库里有快照吗」。
+        反过来写就会踩到刚踩过的坑 —— 全新安装（库里本来就没有快照）时，
+        只要有一个页面没回来，就会先撞上「本次未得到有效数据」这句什么也没说的话，
+        真正的原因（`page-155: ETIMEDOUT …`）被吃掉。
       */
+      if(soft.length && (!snap || snap.syncedAt!==now))
+        throw new Error(`这一轮没有产出完整结果：${explainSyncError(soft[0])}（请求 ${result.data.requests} 次 · 实体 ${result.data.entities} 个 · 最后进度「${result.data.summaries[result.data.summaries.length-1]??'-'}」）`);
       /*
-        顺序要紧：先判断「这一轮有没有真的写进新快照」，再判断「库里有快照吗」。
-        反过来写就会踩到刚踩过的坑 —— 全新安装（库里本来就没有快照）时
-        入口页一失败，就会先撞上「本次未得到有效数据」这句什么也没说的话，
-        真正的原因（`page-1: EREDIRECT …`）被吃掉。
+        这句「未得到有效数据」以前什么也没说 —— 到底是没发请求、还是发了没解析、
+        还是解析了没落库？三种原因三种修法，光看这句话分不出来。所以把报告里的
+        计数一起打出来。
       */
-      if(soft.length && (!snap || snap.syncedAt!==now)) throw new Error(`这一轮一个页面都没读回来：${explainSyncError(soft[0])}`);
+      if(!snap) throw new Error(`本次未得到有效数据，保留上次结果（请求 ${result.data.requests} 次 · 实体 ${result.data.entities} 个 · 步数 ${result.data.steps}${result.data.summaries.length?` · 最后进度「${result.data.summaries[result.data.summaries.length-1]}」`:''}）`);
       // 只在用户尚未调整节次前采用网站识别的作息。
       if(provider==='eams' && snap.periods.length && !(await this.kv.get('academic.periods-edited'))) {
         const candidate={...this.settings,periods:snap.periods};validateSettings(candidate);this.settings=candidate;await this.persist();

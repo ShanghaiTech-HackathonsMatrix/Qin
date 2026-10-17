@@ -318,6 +318,7 @@ export class SyncBroker {
 
       // 第 3 步：发请求（宿主唯一的出网点）
       const pairs: Array<{ req: PlannedRequest; res: BrokerResponse }> = [];
+      const failures: Array<{ req: PlannedRequest; code: string; message: string }> = [];
       for (const { req, host } of authorized) {
         this.deps.audit?.({
           at: this.clock(), pluginId, action: 'sync.request', url: req.url, host,
@@ -327,8 +328,9 @@ export class SyncBroker {
 
         const res = await this.deps.fetch(req, { pluginId, requestId: req.id });
         if (!res.ok) {
-          // 单个请求失败不终止整个同步：把原因记进报告，让插件决定要不要重试
+          // 单个请求失败不终止整个同步：把原因记进报告，稍后照样问插件下一步
           report.errors.push(`${req.id}: ${res.code} ${res.message}`);
+          failures.push({ req, code: res.code, message: res.message });
           this.deps.audit?.({
             at: this.clock(), pluginId, action: 'sync.failed', url: req.url,
             detail: `${res.code}: ${res.message}`,
@@ -347,6 +349,41 @@ export class SyncBroker {
 
       // 第 4–6 步：解析 → 落库 → 问下一步
       const nextRound: PlannedRequest[] = [];
+      /*
+        问插件下一步。**失败的请求也必须问** —— 这一条是踩出来的。
+
+        学术连接器是「一轮一页」的串行扫描器：它靠 `next()` 从自己的队列里
+        取下一页。原来 `next()` 只在解析成功的分支里被调用，于是某一页请求
+        失败后，队列里剩下的页面再也没人问起，整轮扫描在第 155 页悄悄停住，
+        `finish()` 从没跑过，一个实体都没落 —— 而报告里只有一条被当成
+        「可容忍」的传输错误。用户看到的就是「本次未得到有效数据」。
+
+        「单个请求失败不终止整个同步」这句话，只有在这里才真的成立。
+      */
+      const askNext = (
+        req: PlannedRequest, result: ParseResult, status: number,
+      ): PluginResult<SyncReport> | undefined => {
+        if (typeof exports.next !== 'function') return undefined;
+        const dir = this.callPlugin(pluginId, 'next', () =>
+          exports.next!({ step: req.parse, result, status }),
+        );
+        if (!dir.ok) return dir;
+        if (dir.data === null || dir.data === undefined) return undefined;
+
+        const d = dir.data as { next?: unknown; requests?: unknown };
+        if (typeof d.next !== 'string' || d.next === '') {
+          return fail('ESCHEMA', 'next() 返回的 directive 缺少 next 步骤名');
+        }
+        const dirIssues = validateRequests(d.requests);
+        if (dirIssues.length > 0) {
+          return fail('ESCHEMA', `next() 返回的 requests 不合法`, {
+            issues: dirIssues.map((i) => `[${i.index}].${i.field}: ${i.message}`),
+          });
+        }
+        report.boundaryBytes += byteLen(JSON.stringify(d.requests));
+        nextRound.push(...(d.requests as PlannedRequest[]));
+        return undefined;
+      };
       for (const { req, res } of pairs) {
         const parser = (exports.parsers as Record<string, unknown>)[req.parse];
         if (typeof parser !== 'function') {
@@ -386,27 +423,15 @@ export class SyncBroker {
         this.emitEntities(pluginId, result.entities ?? [], report);
 
         // 第 6 步：问插件下一步
-        if (typeof exports.next === 'function') {
-          const dir = this.callPlugin(pluginId, 'next', () =>
-            exports.next!({ step: req.parse, result, status: res.status }),
-          );
-          if (!dir.ok) return dir;
+        const bad = askNext(req, result, res.status);
+        if (bad) return bad;
+      }
 
-          if (dir.data !== null && dir.data !== undefined) {
-            const d = dir.data as { next?: unknown; requests?: unknown };
-            if (typeof d.next !== 'string' || d.next === '') {
-              return fail('ESCHEMA', 'next() 返回的 directive 缺少 next 步骤名');
-            }
-            const dirIssues = validateRequests(d.requests);
-            if (dirIssues.length > 0) {
-              return fail('ESCHEMA', `next() 返回的 requests 不合法`, {
-                issues: dirIssues.map((i) => `[${i.index}].${i.field}: ${i.message}`),
-              });
-            }
-            report.boundaryBytes += byteLen(JSON.stringify(d.requests));
-            nextRound.push(...(d.requests as PlannedRequest[]));
-          }
-        }
+      // 没回来的页面同样要问下一步，否则串行扫描器会在这里断掉（见 askNext 上方）。
+      // 传进去的 result 是明确的失败形状，插件可以据此决定跳过还是重试。
+      for (const f of failures) {
+        const bad = askNext(f.req, { error: `${f.code} ${f.message}` }, 0);
+        if (bad) return bad;
       }
 
       pending = nextRound;

@@ -792,6 +792,27 @@ body, .app { background: #f7f7f3; color: #111; }
   color: #111;
 }
 
+/*
+  「自建」小标记：跟着标题走，不占一行、不改行高。
+  字号压到 9.5px、只留一圈浅灰细边 —— 一眼能看见，但不抢标题。
+*/
+.tag-self {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px solid #d8d8d2;
+  border-radius: 4px;
+  font: 500 9.5px/1.6 -apple-system, 'Segoe UI', system-ui, sans-serif;
+  font-style: normal;
+  letter-spacing: .02em;
+  color: #8d8d87;
+  vertical-align: 1.5px;
+  white-space: nowrap;
+}
+/* 逾期行整块压灰，标记也跟着淡一点，但别淡到看不见 */
+.log-row[data-overdue='true'] .tag-self,
+.ddl-card[data-overdue='true'] .tag-self { border-color: #d5d5cf; color: #94948e; }
+
 .home-empty { padding: 15px 12px; background: #fff; color: #555; border: 1.5px dashed #b9b9b3; border-radius: 8px; font-size: 12px; text-align: center; }
 /* 半宽卡落单时那一列的空位（只在编辑态显示） */
 .home-slot--gap { display: flex; align-items: center; justify-content: center; min-height: 56px; color: #9a9a94; border: 1.5px dashed #d5d5cf; border-radius: 8px; font-size: 11px; }

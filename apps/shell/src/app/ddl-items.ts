@@ -24,6 +24,14 @@ export interface DdlItem {
   dueAt: number;
   /** 来源平台；真实任务当前只有「本机记录」 */
   source: string;
+  /**
+   * 用户自己加的，不是从平台提取来的。
+   *
+   * 视图据此挂一个很小的「自建」标记 —— 混排之后总得能看出哪条是自己写的。
+   * 目前只能靠 `kind === 'custom'` 和「演示态里额外加的那一批」判断：
+   * `Task` 上没有来源字段，等平台同步接上、真有了来源，这里应该换成读那个字段。
+   */
+  selfMade?: boolean;
   description?: string;
   url?: string;
   /** 真实任务才有的回指：点开进编辑表单而不是演示详情 */
@@ -31,16 +39,22 @@ export interface DdlItem {
 }
 
 /**
- * 从核心任务里挑出 DDL。
+ * 从核心任务里挑出「有截止时间、还没被忽略」的那些。
  *
- * 只认 `kind === 'ddl'` 且带截止时间的：没有截止时间的任务不叫 DDL，
- * 塞进「最近的 DDL」会让这一栏变成第二个任务列表。
- * 已忽略（dismissed）的不算 —— 用户明确表示不想再看到它。
+ * 判据是**有没有截止时间**，不是 `kind`。
+ * 早先这里写死了 `kind === 'ddl'`，于是「导入文字」进来的任务（kind 是
+ * custom）一旦填上截止时间，就从主列表和「自建任务」两段里同时消失了 ——
+ * 界面上凭空少一条，比排错序更糟。
+ *
+ * `kind === 'course'` 仍然排除：那是一节课，不是一件要交的事。
+ *
+ * @param allSelfMade 整批都是用户自己加的（演示态额外加的那一批）。
+ *                    真实模式下没有来源字段，只能按 `kind === 'custom'` 认。
  */
-export function ddlsFromTasks(tasks: readonly Task[]): DdlItem[] {
+export function ddlsFromTasks(tasks: readonly Task[], allSelfMade = false): DdlItem[] {
   const out: DdlItem[] = [];
   for (const t of tasks) {
-    if (t.kind !== 'ddl') continue;
+    if (t.kind === 'course') continue;
     if (t.status === 'dismissed') continue;
     if (t.dueAt === null || !Number.isFinite(t.dueAt)) continue;
     out.push({
@@ -49,6 +63,7 @@ export function ddlsFromTasks(tasks: readonly Task[]): DdlItem[] {
       courseId: t.courseId,
       dueAt: t.dueAt,
       source: '本机记录',
+      selfMade: allSelfMade || t.kind === 'custom',
       ...(t.note !== undefined && t.note !== '' ? { description: t.note } : {}),
       taskId: t.id,
     });

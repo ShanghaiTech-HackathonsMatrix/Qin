@@ -54,14 +54,38 @@ const item = (id: string, dueAt: number): DdlItem => ({
 
 console.log('\nDDL：从任务里挑');
 
-test('只认 kind=ddl', () => {
+test('按「有没有截止时间」收，不按 kind 收', () => {
+  const courseId = 't-course';
   const out = ddlsFromTasks([
-    task({ kind: 'ddl' }),
-    task({ kind: 'course' }),
-    task({ kind: 'quiz' }),
-    task({ kind: 'custom' }),
+    task({ id: 't-ddl', kind: 'ddl' }),
+    task({ id: 't-quiz', kind: 'quiz' }),
+    task({ id: 't-checkin', kind: 'checkin' }),
+    task({ id: 't-custom', kind: 'custom' }),
+    task({ id: courseId, kind: 'course' }),
   ]);
-  assert.equal(out.length, 1);
+  // 只有 course 被排除：那是一节课，不是一件要交的事
+  assert.equal(out.length, 4);
+  assert.ok(!out.some((d) => d.id === courseId), 'kind=course 不该进 DDL 列表');
+});
+
+test('自建任务填了截止时间不会从两个列表里同时消失', () => {
+  // 这条是回归测试：早先按 kind==='ddl' 过滤，导入文字进来的 custom 任务
+  // 一旦有了截止时间，就既不在主列表也不在「自建任务」里 —— 界面凭空少一条
+  const [only] = ddlsFromTasks([task({ kind: 'custom', dueAt: at(0, 22, 45) })]);
+  assert.ok(only !== undefined, '带截止时间的自建任务必须进主列表');
+  assert.equal(only?.dueAt, at(0, 22, 45));
+});
+
+test('自建标记：custom 算自建，ddl 不算（真实模式没有来源字段时的判据）', () => {
+  const [custom] = ddlsFromTasks([task({ kind: 'custom' })]);
+  assert.equal(custom?.selfMade, true);
+  const [plain] = ddlsFromTasks([task({ kind: 'ddl' })]);
+  assert.equal(plain?.selfMade, false);
+});
+
+test('整批都是自己加的时，全部打上自建标记（演示态用）', () => {
+  const out = ddlsFromTasks([task({ kind: 'ddl' }), task({ kind: 'quiz' })], true);
+  assert.deepEqual(out.map((d) => d.selfMade), [true, true]);
 });
 
 test('没有截止时间的任务不算 DDL', () => {

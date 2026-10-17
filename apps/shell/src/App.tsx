@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import type { Course, Task } from './domain/types';
+import { EVENT_KIND_LABEL, type Course, type Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
 import { saveOverrides, type Overrides } from './platform/overrides';
 import type { ResolutionReport } from './platform/strategies/types';
@@ -525,8 +525,14 @@ export default function App() {
    * 功能其实一直有，只是视图没去读。
    */
   const ddlItems = useMemo<DdlItem[]>(
-    () => (DEMO_DATA !== null ? DEMO_DATA.ddls : ddlsFromTasks(visibleTasks)),
-    [visibleTasks],
+    () => (DEMO_DATA !== null
+      ? [
+          ...DEMO_DATA.ddls.map((d) => ({ ...d, selfMade: false })),
+          // 演示态里用「＋」加的也算数：填了时间就该跟平台提取的那些排在一起
+          ...ddlsFromTasks(demoExtraTasks, true),
+        ]
+      : ddlsFromTasks(visibleTasks)),
+    [visibleTasks, demoExtraTasks],
   );
   const courseFor = useCallback((courseId: string) => visibleCourses.find((course) => course.id === courseId)?.name ?? '个人任务', [visibleCourses]);
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
@@ -589,12 +595,19 @@ export default function App() {
    * 演示模式只有「＋」当场加的那几条；真实模式从核心任务里挑 dueAt 为空的。
    * 已完成的也留着 —— 用户需要看见自己做过什么。
    */
-  const undatedTasks = useMemo(
-    () => (DEMO_DATA !== null
-      ? demoExtraTasks
-      : visibleTasks.filter((t) => t.dueAt === null && t.status !== 'dismissed')),
-    [visibleTasks],
-  );
+  /**
+   * 「自建任务」段 = 主列表没收录的那些任务。
+   *
+   * 判据故意写成「不在主列表里」而不是「没有截止时间」：
+   * 前者不可能漏，后者会。比如一条 kind 是「课程」的任务填了截止时间，
+   * 它既进不了 DDL 主列表（课程不算要交的事），又不满足「没有截止时间」，
+   * 于是两段都不显示 —— 界面上凭空少一条。这类静默丢失比排错序难查得多。
+   */
+  const undatedTasks = useMemo(() => {
+    const listed = new Set(ddlItems.map((d) => d.id));
+    const source = DEMO_DATA !== null ? demoExtraTasks : visibleTasks;
+    return source.filter((t) => t.status !== 'dismissed' && !listed.has(t.id));
+  }, [ddlItems, visibleTasks, demoExtraTasks]);
   /** 首页与「日程」页共用同一份条目，避免两处各写一遍映射 */
   const scheduleEntries = useMemo<ScheduleEntry[]>(() => {
     const fromClasses: ScheduleEntry[] = DEMO_MODE
@@ -787,7 +800,12 @@ export default function App() {
                       <em>{overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label}</em>
                     </span>
                     <span className="ddl-card__body">
-                      <strong>{ddl.title}</strong>
+                      <strong>
+                        {ddl.title}
+                        {ddl.selfMade === true && (
+                          <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
+                        )}
+                      </strong>
                       <small>{courseFor(ddl.courseId ?? '')} · {ddl.source}</small>
                     </span>
                     {size === 'full' && <span className="ddl-card__arrow" aria-hidden="true">↗</span>}
@@ -969,7 +987,12 @@ export default function App() {
                         <em>{overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label}</em>
                       </span>
                       <span className="log-row__body">
-                        <strong>{ddl.title}</strong>
+                        <strong>
+                          {ddl.title}
+                          {ddl.selfMade === true && (
+                            <span className="tag-self" title="自己添加的，不是平台同步来的">自建</span>
+                          )}
+                        </strong>
                         <small>{courseFor(ddl.courseId ?? '')} · {ddl.source}</small>
                       </span>
                       <span className="log-row__arrow" aria-hidden="true">↗</span>
@@ -995,10 +1018,18 @@ export default function App() {
                       key={t.id}
                       onClick={() => setEditor({ open: true, task: t })}
                     >
-                      <span className="log-row__due"><b>—</b><em>无期限</em></span>
+                      <span className="log-row__due">
+                        <b>{t.dueAt === null ? '—' : formatDue(t.dueAt)}</b>
+                        <em>{t.dueAt === null ? '无期限' : EVENT_KIND_LABEL[t.kind]}</em>
+                      </span>
                       <span className="log-row__body">
-                        <strong>{t.title}</strong>
-                        <small>手动添加 · 待补充截止时间</small>
+                        <strong>
+                          {t.title}
+                          <span className="tag-self">自建</span>
+                        </strong>
+                        <small>
+                          {t.dueAt === null ? '手动添加 · 待补充截止时间' : `${EVENT_KIND_LABEL[t.kind]} · 不进 DDL 列表`}
+                        </small>
                       </span>
                       <span className="log-row__arrow" aria-hidden="true">↗</span>
                     </button>

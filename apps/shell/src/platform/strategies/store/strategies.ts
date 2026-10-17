@@ -35,7 +35,7 @@ export const sqlcipherStore: Strategy<TaskStore, StoreDeps> = {
   note: '经 @capacitor-community/sqlite 落到 net.zetetic:sqlcipher-android，口令存于 KV 策略',
 
   async probe(deps: StoreDeps): Promise<ProbeResult> {
-    if (!sqliteAvailable()) return { ok: false, reason: 'CapacitorSQLite 插件不可用' };
+    if (!sqliteAvailable()) return { ok: false, reason: '没有可用的 SQLite 引擎' };
     if (!deps.kv) return { ok: false, reason: '没有可用的 KV 策略，无处保存数据库口令' };
     if (!deps.indexing) return { ok: false, reason: '没有可用的索引策略，无法建表' };
 
@@ -100,7 +100,7 @@ export const plainSqliteStore: Strategy<TaskStore, StoreDeps> = {
   note: '同样的 JSON 文档 + 索引策略，但数据库文件是明文',
 
   async probe(deps: StoreDeps): Promise<ProbeResult> {
-    if (!sqliteAvailable()) return { ok: false, reason: 'CapacitorSQLite 插件不可用' };
+    if (!sqliteAvailable()) return { ok: false, reason: '没有可用的 SQLite 引擎' };
     if (!deps.indexing) return { ok: false, reason: '没有可用的索引策略，无法建表' };
 
     const name = `__matrix_probe_plain_${Date.now()}`;

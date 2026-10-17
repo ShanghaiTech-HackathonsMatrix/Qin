@@ -12,7 +12,7 @@ import type { IndexingStrategy } from './types';
  */
 async function probeIndexMode(mode: IndexMode): Promise<ProbeResult> {
   if (!sqliteAvailable()) {
-    return { ok: false, reason: 'CapacitorSQLite 插件不可用（web 端会走 JSON 存储）' };
+    return { ok: false, reason: '没有可用的 SQLite 引擎（原生插件与 web 的 sql.js 都不可用）' };
   }
 
   const dbName = `__matrix_probe_${mode}_${Date.now()}`;

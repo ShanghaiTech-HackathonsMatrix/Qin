@@ -28,7 +28,7 @@ export class SqliteStore implements TaskStore {
 
   static async open(encrypted: boolean, deps: StoreDeps): Promise<SqliteStore> {
     if (!sqliteAvailable()) {
-      throw new PlatformError('EUNSUPPORTED', 'CapacitorSQLite 插件不可用');
+      throw new PlatformError('EUNSUPPORTED', '没有可用的 SQLite 引擎');
     }
     if (!deps.indexing) {
       throw new PlatformError('EUNSUPPORTED', '没有可用的索引策略，无法建表');

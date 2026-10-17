@@ -30,6 +30,7 @@ import {
   CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection,
 } from '@capacitor-community/sqlite';
 import { PlatformError, type SqlDb, type SqlParam } from './types';
+import { dropWebSqlite, openWebSqlite, webSqliteSupported } from './web-sqlite';
 
 let shared: SQLiteConnection | null = null;
 
@@ -38,8 +39,29 @@ function conn(): SQLiteConnection {
   return shared;
 }
 
+/**
+ * 有没有 SQLite 可以用，以及用的是哪一个引擎。
+ *
+ * 两个来源：
+ *   · 原生端 —— CapacitorSQLite 插件（可带 SQLCipher）
+ *   · web 端  —— sql.js（WebAssembly），见 web-sqlite.ts
+ *
+ * 以前这里只认原生插件，于是浏览器里整条策略链一路降级到 `store.json`，
+ * 「已降级」警告在开发环境里永远挂着 —— 而那正是最该验证索引策略的地方。
+ *
+ * ⚠️ 判断顺序不能反：`@capacitor-community/sqlite` 在 web 上也**注册**了一个
+ * 实现（CapacitorSQLiteWeb），所以 `isPluginAvailable('CapacitorSQLite')` 在
+ * 浏览器里同样返回 true。只看它会把 web 误判成原生，然后因为缺少
+ * `<jeep-sqlite>` 元素而失败。必须先判平台。
+ */
+export function sqliteEngine(): 'native' | 'wasm' | 'none' {
+  if (Capacitor.getPlatform() !== 'web' && Capacitor.isPluginAvailable('CapacitorSQLite')) return 'native';
+  if (webSqliteSupported()) return 'wasm';
+  return 'none';
+}
+
 export function sqliteAvailable(): boolean {
-  return Capacitor.isPluginAvailable('CapacitorSQLite');
+  return sqliteEngine() !== 'none';
 }
 
 class CapacitorSqlDb implements SqlDb {
@@ -109,9 +131,20 @@ export interface OpenOptions {
  * 已存在同名连接时直接复用，避免 "Connection already exists"。
  */
 export async function openSqlite(opts: OpenOptions): Promise<SqlDb> {
-  if (!sqliteAvailable()) {
-    throw new PlatformError('EUNSUPPORTED', 'CapacitorSQLite 插件不可用');
+  const engine = sqliteEngine();
+  if (engine === 'none') {
+    throw new PlatformError('EUNSUPPORTED', '没有可用的 SQLite 引擎（原生插件与 web 的 sql.js 都不可用）');
   }
+
+  // web 端没有 SQLCipher：sql.js 只编了普通 SQLite。
+  // 明确报出来，让 store.sqlcipher 的探测失败并降级到 store.sqlite —— 而不是假装加密成功。
+  if (engine === 'wasm') {
+    if (opts.encrypted) {
+      throw new PlatformError('EUNSUPPORTED', 'web 端的 sql.js 未编译 SQLCipher，无法提供加密数据库');
+    }
+    return openWebSqlite(opts.name);
+  }
+
   const c = conn();
   const version = opts.version ?? 1;
 
@@ -164,7 +197,12 @@ export async function openSqlite(opts: OpenOptions): Promise<SqlDb> {
  * 插件侧会因为拿不到口令而报错，文件就删不掉了。
  */
 export async function dropSqlite(name: string, encrypted = false): Promise<void> {
-  if (!sqliteAvailable()) return;
+  const engine = sqliteEngine();
+  if (engine === 'none') return;
+  if (engine === 'wasm') {
+    await dropWebSqlite(name);
+    return;
+  }
   const c = conn();
   try {
     const existing = await c.isConnection(name, false);

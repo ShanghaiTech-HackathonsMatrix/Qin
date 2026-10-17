@@ -9,8 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts",
-    "check": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && tsc --noEmit",
+    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && node src/app/home-cards.test.ts && node src/app/ddl-items.test.ts",
+    "check": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && node src/app/home-cards.test.ts && node src/app/ddl-items.test.ts && tsc --noEmit",
     "sync": "vite build && cap sync",
     "sync:android": "vite build && cap sync android",
     "sync:ios": "vite build && cap sync ios"
@@ -24,7 +24,8 @@
     "@matrix/kernel": "*",
     "@matrix/plugin-api": "*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "sql.js": "^1.13.0"
   },
   "devDependencies": {
     "@capacitor/android": "^8.0.0",

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <!--
+      CSP 由构建环境决定：
+        .env              → 开发用（放开 ws: 以支持 Vite HMR）
+        .env.production   → 生产用，connect-src 'none'
+      P0-S2 结论：Capacitor 桥接走 @JavascriptInterface / WKScriptMessageHandler，
+      不是网络请求，因此 connect-src 'none' 成立。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="%VITE_CSP%" />
+    <title>Matrix</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

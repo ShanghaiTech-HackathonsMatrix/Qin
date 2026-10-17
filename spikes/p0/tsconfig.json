@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "quickjs-emscripten": ["./node_modules/quickjs-emscripten"]
+    }
+  },
+  "include": [
+    "../../docs/design/sandbox-sketch.ts",
+    "../../docs/design/api-v1.d.ts"
+  ]
+}

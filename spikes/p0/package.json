@@ -1,0 +1,24 @@
+{
+  "name": "matrix-p0-spikes",
+  "private": true,
+  "type": "module",
+  "description": "Matrix P0 技术验证：S1 查询编译与索引、S2 移动端桥接与 CSP 静态审查、S4 QuickJS 沙箱边界、S5 插件网络请求形态",
+  "scripts": {
+    "s1": "node src/s1-query-compiler.test.ts",
+    "s2": "node src/s2-inspect-bridge.ts",
+    "s4": "node src/s4-sandbox.test.ts",
+    "s4b": "node src/s4b-sync-runtime.test.ts",
+    "s5": "node src/s5-request-shape.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node src/s1-query-compiler.test.ts && node src/s2-inspect-bridge.ts && node src/s4-sandbox.test.ts && node src/s4b-sync-runtime.test.ts && node src/s5-request-shape.test.ts && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "quickjs-emscripten": "0.32.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

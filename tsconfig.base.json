@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+
+    /*
+     * 全仓统一约定（与 apps/shell/src/core 一致）：
+     *
+     * 1. 相对 ESM 导入一律写显式 .ts 后缀。
+     *    原因：Node 24 的原生类型擦除要求 ESM 相对导入带扩展名。
+     *    写了它就能 `node src/xxx.test.ts` 直接跑测试 —— 零构建、零依赖。
+     *    Vite / tsc 同样能解析这种写法。
+     *
+     * 2. **不用** TS 参数属性 / enum / namespace / 装饰器。
+     *    这些语法在 Node 的 strip-only 模式下会直接抛
+     *    ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX。用普通字段声明 + 赋值替代。
+     */
+    "allowImportingTsExtensions": true
+  }
+}

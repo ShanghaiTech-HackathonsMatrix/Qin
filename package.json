@@ -1,0 +1,20 @@
+{
+  "name": "matrix",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Matrix —— 模块化学习助手（monorepo 根）",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @matrix/plugin-api && npm run test -w @matrix/kernel && npm run test -w matrix-shell",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run test && npm run typecheck",
+    "build": "npm run build -w matrix-shell"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

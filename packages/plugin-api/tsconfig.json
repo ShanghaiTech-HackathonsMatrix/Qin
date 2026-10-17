@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    /*
+     * 只额外要 DOM 的一个东西：`URL`（与 `URLSearchParams`）。
+     * 它是 Web 平台 API，Node 也提供全局版本，因此宿主 / 插件脚手架 / CI 三边都能用。
+     * 除此之外**不得**使用任何 DOM 或 Node 专有 API —— 这个包要能跑在任何一边。
+     */
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src"]
+}

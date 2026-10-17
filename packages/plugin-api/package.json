@@ -1,0 +1,17 @@
+{
+  "name": "@matrix/plugin-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Matrix 插件 API v1 —— 契约、Manifest 校验、权限矩阵、版本协商",
+  "exports": {
+    ".": "./src/v1/index.ts"
+  },
+  "scripts": {
+    "test": "node src/v1/conformance.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

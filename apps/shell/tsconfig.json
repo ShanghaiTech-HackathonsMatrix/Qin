@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* src/core 内部一律写显式 .ts 后缀的 import。
+       原因：Node 24 的原生类型擦除要求 ESM 相对导入带扩展名，
+       写了它就能 `node src/core/conformance.test.ts` 直接跑测试，零构建、零依赖。
+       Vite 打包同样能解析这种写法。
+       另外 src/core 里**不用 TS 参数属性 / enum / namespace / 装饰器** ——
+       这些语法在 Node 的 strip-only 模式下会直接报 ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX。 */
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "capacitor.config.ts", "vite.config.ts"]
+}

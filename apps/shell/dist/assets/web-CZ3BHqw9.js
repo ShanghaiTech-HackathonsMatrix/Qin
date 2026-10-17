@@ -1,0 +1,2 @@
+import{W as s}from"./index-BpD-3H95.js";class t extends s{async isSupported(){return{supported:!1}}async capabilities(){return{exact:!1,maxPending:0,lostOnReboot:!1,requiresPermission:!1}}async checkPermission(){return{permission:"unsupported"}}async requestPermission(){return{permission:"unsupported"}}async schedule(e){throw this.unimplemented("web 构建没有通知桥")}async cancel(e){throw this.unimplemented("web 构建没有通知桥")}async cancelAll(){throw this.unimplemented("web 构建没有通知桥")}async pending(){return{ids:[]}}}export{t as MatrixNotifyWeb};
+//# sourceMappingURL=web-CZ3BHqw9.js.map

@@ -13,6 +13,8 @@
 
 import type { PluginKind } from './manifest.ts';
 import type { ViewRender } from './ui.ts';
+import type { SlotValidator } from './slot.ts';
+import type { CommandHandler } from './command.ts';
 
 // ------------------------------------------------------------ 请求描述
 
@@ -187,6 +189,31 @@ export interface PluginExports {
    * 每个函数必须**同步且纯**：同样的 `ViewContext` 得到同样的树。
    */
   renders?: Readonly<Record<string, ViewRender>>;
+
+  /**
+   * 槽定义方的**跨字段校验钩子**。键是槽名，值是同步纯函数。
+   *
+   * 这就是「`bool CheckEvent(const Event&)`」在纯函数世界里的样子：
+   * 同步、无副作用、同样的输入永远同样的输出。宿主在**写入那一刻**调它。
+   *
+   * 为什么不能是回调：能读全局 / 返回两次不同结果的校验器会让「同样数据渲染出
+   * 同样界面」不成立；而且沙箱里回调跨不过去。
+   *
+   * 绝大多数不合法靠 `SlotDefinition.fields` 就够了，这里只处理跨字段规则
+   * （例如 `endAt` 不能早于 `startAt`）。
+   */
+  slotValidators?: Readonly<Record<string, SlotValidator>>;
+
+  /**
+   * 命令实现。键是 manifest `contributes.commands` 里的 `id`。
+   *
+   * 和 `renders` 一样是「目录在 manifest，实现在这里」，宿主交叉核对两边：
+   * 声明了没实现 → 用户点了会得到 `ENOTSUP`，不是静默无事发生。
+   *
+   * **同步、纯函数**：`(input, ctx) => 要做的改动`。它不写存储、不发请求、
+   * 不读全局 —— 只描述改动，由宿主执行。见 `command.ts` 的文件头。
+   */
+  commands?: Readonly<Record<string, CommandHandler>>;
 
   /** connector / logic 形态 */
   plan?(input: PlanInput): RequestPlan;

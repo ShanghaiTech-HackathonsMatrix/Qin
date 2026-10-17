@@ -1,7 +1,7 @@
 /**
- * `DataBus` 的 KV 持久化后端 —— 让插件写入的实体活过刷新。
+ * `DataBus` 的 KV 持久化后端 —— **只管插件命名空间**。
  *
- * ## 为什么是 KV，不是 SQLite
+ * ## 为什么插件实体走 KV，而不是 SQLite
  *
  * 1. `TaskStore` 的 `SqlDb` 是**私有**的（`SqliteStore` 不往外给），硬接要么
  *    开第二个连接、要么把抽象捅个洞。
@@ -9,8 +9,11 @@
  *    那 18 张已经闲置着，再加一套只会让「到底哪张表是真的」更难回答。
  * 3. KV 一条代码路径同时覆盖 web 与 Android，预览版两种形态行为一致。
  *
- * **代价写在明处**：实体走 KV、任务走 SQLite。在 SQL 后端下这是个不对称 ——
- * 等 DataBus 收敛成唯一数据层（`dev.md` 的 T2d / T2e）时一起消掉。
+ * ## 核心实体**不**走这里
+ *
+ * C 段之后核心实体由 `CoreStoreBackend` 落进物理存储（SQLite/JSON，带加密与索引），
+ * 分流发生在 `CompositeBackend` 里。所以「实体走 KV、任务走 SQLite」这个不对称
+ * 只存在于**存储层**，对外只有一个 `DataBus` —— 调用方不用关心，也看不出区别。
  *
  * ## 键布局：一个插件一个键
  *
@@ -61,10 +64,17 @@ export class KvEntityBackend implements DataBackend {
   async save(changes: readonly DataChange[]): Promise<void> {
     const drops = new Set<string>();
     const upserts = new Map<string, EntityRecord[]>();
+    /** pluginId → 要删掉的单条记录 */
+    const removes = new Map<string, { type: string; id: string }[]>();
 
     for (const c of changes) {
       if (c.kind === 'dropPlugin') {
         drops.add(c.pluginId);
+      } else if (c.kind === 'drop') {
+        const list = removes.get(c.pluginId);
+        const one = { type: c.type, id: c.id };
+        if (list) list.push(one);
+        else removes.set(c.pluginId, [one]);
       } else {
         const list = upserts.get(c.record.pluginId);
         if (list) list.push(c.record);
@@ -78,16 +88,31 @@ export class KvEntityBackend implements DataBackend {
       await this.kv.remove(keyFor(pluginId));
     }
 
-    // ② 再落 upsert，一个插件读改写一次
-    for (const [pluginId, recs] of upserts) {
+    // ② 再落单条删除与 upsert，一个插件读改写一次。
+    //    注意**不要**跳过已经在 `drops` 里的插件：「卸载后立刻重装」会给出
+    //    `dropPlugin` + `upsert` 的同一批，此时键已被删掉，`readDoc` 读回 null，
+    //    从空文档开始写正好就是想要的效果。跳过的话新记录会凭空消失。
+    const touched = new Set<string>([...removes.keys(), ...upserts.keys()]);
+    for (const pluginId of touched) {
       const doc = (await this.readDoc(keyFor(pluginId))) ?? {};
-      for (const r of recs) {
+
+      for (const r of removes.get(pluginId) ?? []) {
+        const list = doc[r.type];
+        if (!list) continue;
+        const i = list.findIndex((x) => x.id === r.id);
+        if (i >= 0) list.splice(i, 1);
+        if (list.length === 0) delete doc[r.type];
+        else doc[r.type] = list;
+      }
+
+      for (const r of upserts.get(pluginId) ?? []) {
         const list = doc[r.type] ?? [];
         const i = list.findIndex((x) => x.id === r.id);
         if (i >= 0) list[i] = r;
         else list.push(r);
         doc[r.type] = list;
       }
+
       await this.kv.set(keyFor(pluginId), JSON.stringify(doc));
     }
   }

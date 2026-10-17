@@ -13,6 +13,12 @@ import type { EntitySchema, Manifest } from '@matrix/plugin-api';
 
 import { views } from './views.ts';
 
+/**
+ * Timeline 定义的槽名。**纯字符串**，不是 import ——
+ * ICS 插件不需要、也不应该依赖 Timeline 插件存在。
+ */
+const TIMELINE_SLOT = 'app.matrix.timeline.event';
+
 /** `app.matrix.*` 是保留前缀：只有宿主显式传 `allowReservedPrefix: true` 才装得上 */
 export const PLUGIN_ID = 'app.matrix.importer.ics';
 
@@ -52,6 +58,8 @@ export const sessionSchema: EntitySchema = {
     title: { type: 'string', maxLength: 200 },
     startAt: { type: 'integer' },
     endAt: { type: 'integer' },
+    /** 时间线上的语义：这一条是「课时」。Timeline 用它挑颜色 */
+    type: { type: 'string', maxLength: 20 },
     location: { type: 'string', maxLength: 200 },
     /** ICS 的 UID —— 稳定的平台侧主键，重复导入靠它幂等 */
     uid: { type: 'string', maxLength: 200 },
@@ -71,12 +79,19 @@ export const manifest: Manifest = {
   apiVersion: '^1.0.0',
   kind: 'first-party',
   // entry 不填：first-party 在 KINDS_WITHOUT_ENTRY 里，进程内运行时也不读它。
-  engines: { platform: ['android', 'web', 'windows'] },
+  engines: { platform: ['android', 'ios', 'web', 'windows'] },
   permissions: {
     // `read` 里要有 session：插件的控件要按课程统计课时数。
     // 少了它，`WidgetPage` 会把该控件画成「缺少 data.read 权限」的提示 —— 那是刻意的，
     // 控件不能借宿主的读取能力绕过插件自己的权限。
     data: { write: ['course', 'session'], read: ['course', 'session'] },
+    /**
+     * 往 Timeline 的槽里写事件。
+     *
+     * `contributes.consumesSlots` 说「我想写哪个槽」，这里说「用户批准了哪些」——
+     * 两处都要写和 `data.write` 是同一套思路（声明 ≠ 授权）。
+     */
+    ui: { slots: [TIMELINE_SLOT] },
     /** 缺了这一项，`source: 'host'` 的请求会被宿主以 EPERM 拒掉 */
     local: true,
   },
@@ -88,6 +103,35 @@ export const manifest: Manifest = {
     // 目录在这里（纯数据），实现在 `renders` 里（`index.ts` 导出）。
     // 宿主会交叉核对两边，声明了没实现会报警告。
     views,
-    commands: [{ id: 'import', title: '导入 ICS' }],
+    /**
+     * 把每节课塞进时间线。
+     *
+     * `map` 是**纯数据**：槽字段 → 自己实体字段。没有函数，所以不需要
+     * 「调用 Timeline 的某个方法」——两边都不知道对方存在，只认识槽名。
+     */
+    consumesSlots: [
+      {
+        slot: TIMELINE_SLOT,
+        from: 'session',
+        map: {
+          startAt: 'startAt',
+          endAt: 'endAt',
+          title: 'title',
+          type: 'type',
+          detail: 'location',
+          courseId: 'courseId',
+        },
+      },
+    ],
+    /*
+     * ⚠️ **没有 `commands`**，刻意不声明。
+     *
+     * 原来这里写着 `commands: [{ id: 'import', title: '导入 ICS' }]`，但
+     * `exports.commands` 里从来没有实现它 —— 在 T14 之前没人读这个字段，所以是个
+     * 无害的占位；T14 之后命令是真会被执行的，留着它就等于埋了一个「点了必然 EMANIFEST」。
+     *
+     * 而且导入**本质上不适合做命令**：它需要整份 .ics 文本，而命令入参只能是标量
+     * （≤300 字符、≤20 键）。真要命令化，得先给契约加「宿主提供文件内容」的能力。
+     */
   },
 };

@@ -1,6 +1,6 @@
 # 缺口清单与第一批插件候选
 
-> **核实方式**：逐项读代码 + 跑测试（`npm run check`，**362 项断言**全绿），
+> **核实方式**：逐项读代码 + 跑测试（`npm run check`，**417 项断言**全绿），
 > 不是照抄 `DESIGN.md` 的承诺。凡标了 `文件:行号` 的都可以自己去看。
 >
 > **本轮已复核**：能力清单那条已经修好（§1 现在是 ✅），各套件断言数重新数过，
@@ -19,14 +19,17 @@
 
 | 套件 | 断言数 |
 |---|---|
-| `packages/plugin-api` | 108 |
-| `packages/kernel` | 85 |
+| `packages/plugin-api` | 115 |
+| `packages/kernel` | 87 |
 | `apps/shell` 核心层 | 87 |
 | 跨包差分 | 28 |
 | 数据持久化 | 11 |
+| 核心数据层（C 段） | 13 |
+| 通知桥（接口 + 适配层 + 各端骨架） | 26 |
+| 槽 + Timeline + 游标 + 命令 + 课程卡 + 控件取数 | 36 |
 | ICS 插件 | 22 |
 | 控件 UI 系统 | 21 |
-| **合计** | **362** |
+| **合计** | **446** |
 
 这些覆盖了「插件怎么被描述、怎么被校验、怎么被驱动、怎么被隔离」，可以放心依赖。
 
@@ -127,58 +130,76 @@ README §9 又反复教作者「查 `capabilities.includes(...)`」——
 
 ---
 
-## 2. 数据层：两条互不相通的路 ⚠️（持久化已补，形状还没收敛）
+## 2. 数据层：两条互不相通的路 ✅ **已收敛**（C 段）
 
 这是**写完第一个插件后立刻会撞上**的问题，比沙箱更早。
 
 | | `TaskStore`（`platform/strategies/store/`） | `DataBus`（`packages/kernel/src/databus.ts`） |
 |---|---|---|
-| 谁在用 | `App.tsx` / `TimelineView` / `CoursesView` | 插件（`bus.emit` / `bus.read`） |
-| 持久化 | ✅ SQLite / SQLCipher / JSON 三级降级 + 加密探针 | ✅ **已补**（`KvEntityBackend`，write-behind） |
+| 谁在用 | ~~`App.tsx` / `CoursesView`~~ → **只有 `BusTaskStore` 门面** | 插件 + **核心实体** |
+| 持久化 | ✅ SQLite / SQLCipher / JSON 三级降级 + 加密探针 | ✅ write-behind |
 | 键隔离 | 无插件概念 | ✅ 按 `pluginId` 命名空间 |
 | 配额 | 无 | ✅ 行数 + 字节 |
 | Schema | 无 | ✅ `EntitySchema` 校验 |
-| **类型形状** | `Course.name` | ❌ `course.title` —— **同一个名字，两个形状** |
+| **类型形状** | ~~`Course.name`~~ → 门面里翻译 | ✅ `course.title` —— **对外只有这一个形状** |
 
 ### 2.1 已修好 ✅（T2a–T2c）
 
-`bootstrap.ts` 现在是 `new PluginHost({ core, modules, dataBackend: new KvEntityBackend(kv) })`。
+`bootstrap.ts` 现在是
+`new PluginHost({ core, modules, dataBackend: new CompositeBackend(new CoreStoreBackend(store), new KvEntityBackend(kv)) })`。
 
 | 层 | 做了什么 |
 |---|---|
 | 内核 | `DataBus` 接受可选 `DataBackend`；**`emit()` 仍然同步**（D8），变更进队列；`flush()` 落盘、`restore()` 重建内存索引与配额计数 |
 | 宿主 | `sync()` / `uninstall()` 结束前 `await bus.flush()`；`restoreData()` 在 install 之后、UI 订阅之前跑（`restore` 刻意不发事件） |
-| shell | `KvEntityBackend`：键 `entity.<pluginId>` → `{ [type]: EntityRecord[] }`。一次批量里**一个插件只读改写一次**，200 条不会变成 200 次往返 |
-| 验收 | `data-persistence.test.ts` **11 项**：建**新宿主接同一个 KV** 模拟重启，行数 / 字节数 / 内容都对得上；重复导入幂等；卸载后重启数据不复活 |
+| shell | `CompositeBackend` 按命名空间分流：核心 → `CoreStoreBackend`（SQLite/JSON），其它 → `KvEntityBackend`（KV，一个插件一个键、一次批量只读改写一次） |
+| 验收 | `data-persistence.test.ts` **11 项** + `core-data-backend.test.ts` **13 项**：建**新宿主接同一套后端**模拟重启，内容对得上；重复导入幂等；卸载后重启数据不复活；**删除也会落盘** |
 
 **为什么用 write-behind 而不是让 `emit` 变 async**：插件契约是同步的（D8），
 `bus.emit` 一旦要 `await`，整个插件 API 就得改成异步，S4b 已经证明那条路会崩。
 所以**内存仍是唯一真相**，持久化是内存的投影。
 
-**为什么走 KV 而不是新开 SQLite 表**：`TaskStore` 的 `SqlDb` 是私有的，硬接要么开
-第二个连接、要么捅破抽象；而新开一张 `plugin_<ns>_entity` 表就是**第三套表**。
+**为什么核心实体不也走 KV**：任务数据有 SQLCipher 加密与索引策略，换 KV 是倒退。
+分流只发生在**存储实现**层，对外只有一个 `DataBus`。
 
-> **代价，写在明处**：插件实体走 KV、`TaskStore` 走 SQLite —— 在 SQL 后端下这是个
-> **不对称**。等 DataBus 收敛成唯一数据层（T2e）时一起消掉。
+> **顺带修掉的内核缺陷**：`bus.drop()` 原来只删内存、**不入队持久化** ——
+> 于是「删了一条任务，重启后它又回来了」。`DataChange` 增加了 `{kind:'drop'}`，
+> 两个后端都会处理。以前没露馅是因为槽数据每次同步都整体重写。
 
-### 2.2 还没修：`course` 有两个形状 ⚠️（T2d / T2e）
+### 2.2 `course` 的形状收敛 ✅ **已收敛**
 
-| | 领域 `Course`（TaskStore） | ICS 实体 `course`（DataBus） |
+原来有两个形状：
+
+| | 领域 `Course`（物理层） | ICS 实体 `course`（DataBus） |
 |---|---|---|
-| 主字段 | `name` | `title` |
+| 主字段 | `name` ← 历史遗留 | `title` ← 与插件契约一致 |
 | 其余 | `code?` `color?` `createdAt` `updatedAt` | `code?` `location?` `source?` |
 
-**后果**：导入成功、数据也落了盘，但「课程」页一个字都看不见 —— 它读的是 `TaskStore`。
-`IcsImportView.tsx` 已经如实标注「目前只在本页显示」，所以不是谎报，是功能缺口。
+**现在**：`name ↔ title` 的翻译只发生在 `core-entities.ts` 的
+`projectCourse()` / `unprojectCourse()` 这一对函数里 —— 它们是互逆的，
+改动其中一个必须同时改另一个（有往返测试钉着）。
 
-`importer-ics/manifest.ts:28` 的注释早就写了这件事：「`course` 是全局类型名……
-等核心表出现时再收敛」。T2d / T2e 就是那个收敛。
+**`TaskStore` 不再是可写真相**：它退化成物理持久化层，UI 通过 `BusTaskStore`
+门面读写总线。所以「同一个名字两个形状」只存在于**存储边界**上，
+出了那个边界只有一种形状。
 
-### 2.3 顺带的两个坑
+> ⚠️ 顺带一个必须记住的坑：`DataBus.read()` **默认跨命名空间可见**
+> （按 `type` 遍历整张表）。如果插件也声明了一个叫 `course` 的类型，
+> 宿主不传 `opts.owner` 就会把两边的记录混在一起。核心实体的读一律要带
+> `{ owner: CORE_NS }`；**只有**「课程页」那种刻意要合并的地方才不带。
 
-- **游标只在内存**（`plugin-host.ts` 的 `cursors` Map），重启即失 —— 分页跨重启不保证（T10）。
+### 2.3 顺带的坑
+
+- ~~**游标只在内存**~~ ✅ **已修**（E 段 / T10）：`cursor.<pluginId>` 存 KV，
+  `restoreData()` 时读回。落盘失败不回滚内存，只记审计。
 - **类型名没有归属仲裁**：只有**记录键**含 `pluginId`，类型名是全局的。两个插件各自
   声明 `course` 且 schema 不同时行为未定义（`ownersOf()` 只用于挑 schema）。
+  用**槽**绕开了定义方这一侧：槽条目存在定义方命名空间下，读的时候带 `owner`。
+  但「插件 A 和插件 B 各自声明 `course`」这件事本身仍然没有仲裁规则。
+
+> 📌 `DataBus.read()` 有个**容易被忽略的默认**：不传 `opts.owner` 时它按 `type`
+> 遍历整张表，**跨插件可见**。这是「插件间共享实体类型」的基础，但也意味着
+> 「只想读自己/核心的」必须显式传 owner。这一轮至少踩过一次（见 §2.2 的警告）。
 
 > 📌 `docs/design/schema.sql` 里还有 **18 张表**的完整设计（`course` / `session` /
 > `plugin_registry` / `sync_state` / `plugin_quota` / `layout_profile` / `audit_log` …），
@@ -208,18 +229,47 @@ README §9 又反复教作者「查 `capabilities.includes(...)`」——
 
 ---
 
-## 4. 平台与打包 ❌
+## 4. 平台与打包 🔶（iOS 已铺路，未生成工程）
 
 | 项 | 状态 |
 |---|---|
 | Android | ✅ 真机验证过（`tools/build-apk.ps1`，minSdk 24 / targetSdk 36） |
 | Web | ✅ `vite build` 通 |
-| **iOS** | ❌ 没有 `apps/shell/ios/` |
+| **iOS** | 🔶 **代码层已就绪，工程未生成**。缺 `apps/shell/ios/` —— `npx cap add ios` 需要 macOS，留给协作同伴。前置已补齐（见下） |
+| **通知** | 🔶 接口已定（`NotifyPort`），各端 bridge 是骨架，**行为是「诚实地说没有」** |
 | **Electron（Windows EXE）** | ❌ 没有 electron 依赖，没有 `apps/desktop/` |
+| **桌面卡片（widget）** | ❌ 未开始。Android 用 `RemoteViews`、iOS 用 SwiftUI，**都是独立 UI 实现**，`UiNode` 用不上 |
 
 `apps/` 下只有 `shell` 一个。多端是原始需求里明确写的（Android → iOS → Windows），
 所以这是**功能缺口**，不是「锦上添花」。好消息：D6 的纯 TS 修订让这件事变便宜了 ——
 Electron 端只需要换传输层与存储后端。
+
+### 4.1 iOS 前置已补齐
+
+| 项 | 说明 |
+|---|---|
+| `@capacitor/ios` | 已进 `apps/shell` devDependencies，否则 `cap add ios` 跑不起来 |
+| `capacitor.config.ts` | 补 `ios` 块与 `server.iosScheme: 'https'`（默认是 `capacitor`，与 CSP/鉴权不一致） |
+| `engines.platform` | ICS 插件补 `'ios'`（该字段目前只校验形状、不做运行时拦截，但不写就是文档撒谎） |
+| 代码层可移植性 | 无 `if (platform === 'android')`；三个存储插件都有 iOS 实现；索引策略本就有探针 + 影子表退路 |
+
+### 4.2 通知桥：平台差异是数据，不是分支
+
+`NotifyPort` 只暴露一个 `capabilities()`，各端自报四件事：
+
+| | `exact` | `maxPending` | `lostOnReboot` | `requiresPermission` |
+|---|---|---|---|---|
+| Android | 看精确闹钟权限 | 无硬上限 | **true**（闹钟重启即丢） | true（13+） |
+| iOS | **true** | **64** | false | true |
+| web / 当前构建 | false | 0 | false | false |
+
+于是调度器只写一遍。那个 64 是**全局设计约束**：滚动窗口必须按最小的上限设计。
+
+**状态诚实说明**：`Platform.notify` 是 `CapacitorNotifyPort`（两端统一适配层），
+但原生骨架如实报告 `supported: false` —— 所以 `isSupported()` 为 false、
+`schedule()` 抛错，启动时往 `warnings` 里写一条「本构建没有可用的通知桥」。
+宿主**没有**把 `notify.local` 放进 `IMPLEMENTED_CAPABILITIES`。
+详见 `packages/capacitor-notify/README.md`。
 
 ---
 
@@ -255,16 +305,34 @@ Electron 端只需要换传输层与存储后端。
 |---|---|---|---|
 | 1 | ~~能力清单说真话~~ ✅ **已完成** | — | 已完成 |
 | 2 | ~~§2 数据持久化~~ ✅ **已完成**（T2a–T2c） | — | 已完成 |
-| 3 | ~~第一个插件端到端~~ ✅ **已完成** | 只剩「数据活过刷新」，卡在 2 | 小 |
+| 3 | ~~第一个插件端到端~~ ✅ **已完成** | — | 小 |
 | 4 | ~~§1.3 视图渲染层~~ ✅ **已完成**（U1–U6） | — | 已完成 |
-| 4b | **§2.2 类型收敛**（`course` 两个形状） | 插件实体进不了「课程」页 | 小（T2d / T2e） |
+| 4b | ~~§2.2 类型收敛~~ ✅ **已收敛**（A 段：投影处 `name → title`） | — | 已完成 |
+| 4g | ~~**C 段：DataBus 成唯一数据层**~~ ✅ **已完成**：`CompositeBackend` 分流 + `BusTaskStore` 门面 + 投影删除 | — | 已完成 |
+| 4c | ~~§2.2 收尾：`CoursesView` 改读 DataBus~~ ✅ **已完成**（T15） | — | 已完成 |
+| 4d | ~~插件互操作（槽机制）~~ ✅ **已完成**（B–D） | — | 已完成 |
+| 4e | ~~控件改数据（命令通道）~~ ✅ **已完成**（T14） | — | 已完成 |
+| 4h | ~~**通知桥接口 + 适配层 + 各端骨架**~~ ✅ **接口与适配层已完成**：`NotifyPort` + `CapacitorNotifyPort`（26 项断言）+ `packages/capacitor-notify/`（Android 已编进 APK，iOS 未验证） | 各端原生实现 | 二期 |
+| 4i | **`npx cap add ios` 生成 Xcode 工程** —— 需要 macOS，本机做不了 | 无（代码层已就绪） | 协作同伴 |
+| **4f** | **T6 读闸（`permissions.data.read`）** | 插件主动读任何类型都能拿到。**用户决定推迟到二期** | 小，但二期第一件 |
 | 5 | **签名校验 + `.mtp` 安装** | 第三方插件的一切 | 中大 |
 | 6 | **QuickJS 沙箱** | 第三方代码真正跑起来 | 大（S1–S5 的结论已经铺好路） |
 | 7 | **iOS / Electron** | 原始需求里的多端 | 中大 |
 | 8 | 通知 / 调度 / 鉴权代理 / `db.*` | 连接器类插件 | 大，可并行 |
 
-**现在的头号项是 4b。** 1 / 2 / 3 / 4 都做完了 —— 数据能存、能画成控件，
-但插件实体和「课程」页之间还差一次类型收敛。
+**T6（`DataBus.read()` 的 `permissions.data.read` 闸）用户已决定推迟到二期**，
+理由是加快成型。这条缺口如实记录在这里：
+
+> 现在任何插件读任何类型都能拿到数据，`permissions.data.read` 只在**控件取数**
+> （`ui/record-selection.ts`）那一处被检查。也就是说权限声明在「插件主动读」
+> 这条路上是**装饰性的**。
+>
+> 之所以现在还不致命：能跑起来的插件只有第一方的 Timeline 和 ICS，两者都是我们自己写的。
+> 一旦第三方插件（沙箱 + `.mtp`）上线，这条必须先补，否则「插件 A 偷看插件 B 的数据」
+> 就是一行代码的事。
+
+**所以二期开工的第一件事是 T6，不是沙箱。** 沙箱解决的是「代码跑不出去」，
+读闸解决的是「数据不串门」——后者更便宜，且是前者的前提。
 
 ---
 

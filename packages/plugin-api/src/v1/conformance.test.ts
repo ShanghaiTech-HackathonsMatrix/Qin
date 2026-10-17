@@ -16,6 +16,7 @@
 import { strict as assert } from 'node:assert';
 
 import {
+  COMMAND_LIMITS,
   CURRENT_API_VERSION,
   CORE_TRANSPORT_CODES,
   DEFAULT_MAX_STEPS,
@@ -25,6 +26,7 @@ import {
   authorize,
   checkPermission,
   codeOf,
+  coreOpType,
   describePermissions,
   emptyPermissions,
   hostOf,
@@ -45,6 +47,8 @@ import {
   parseAction,
   UI_LIMITS,
   satisfiesRange,
+  validateCommandInput,
+  validateCommandResult,
   validateManifest,
   type Manifest,
   type PermissionContext,
@@ -1332,9 +1336,22 @@ test('Action：三种合法形状都能解析', () => {
   assert.equal(sync.ok, true);
 });
 
-test('Action：没有「任意命令」这一档 —— 宿主没有执行入口，不做假开关', () => {
-  const r = parseAction({ kind: 'command', id: 'markDone' });
-  assert.equal(r.ok, false, 'v1 不得接受 command：那会是一个点了没反应的按钮');
+test('Action：command 必须有 id —— 但「任意命令」这一档仍然不存在', () => {
+  // T14 之后 command 是真的了（宿主会去找 `exports.commands[id]`）。
+  // 但它不是「执行任意东西」：id 必须是 manifest 里声明过的命令，
+  // 宿主找不到就 ENOTFOUND。所以这里钉的是「必须指名道姓」。
+  const noId = parseAction({ kind: 'command' });
+  assert.equal(noId.ok, false, '没有 id 的 command 无从执行');
+
+  const emptyId = parseAction({ kind: 'command', id: '' });
+  assert.equal(emptyId.ok, false, 'id 不能是空串');
+
+  const good = parseAction({ kind: 'command', id: 'toggleTask', input: { taskId: 'k1' } });
+  assert.equal(good.ok, true);
+
+  // 入参必须是标量：对象 / 数组过不了沙箱边界，也没法写进审计日志
+  const nested = parseAction({ kind: 'command', id: 'x', input: { payload: { a: 1 } } });
+  assert.equal(nested.ok, false, '命令入参不接受嵌套对象');
 });
 
 test('Action：setUi 的值必须是 JSON 标量', () => {
@@ -1392,6 +1409,59 @@ test('manifest.views：重复 id / 非 kebab-case / kind 非法 / 尺寸越界 �
     paths.some((p) => p.startsWith('contributes.views[4].defaultSize')),
     '应报尺寸越界',
   );
+});
+
+// ============================================================ 命令通道（T14）
+
+section('9. 命令通道：插件只描述改动，宿主执行');
+
+test('coreOps 是封闭清单：未知操作被拒', () => {
+  const bad = validateCommandResult({ coreOps: [{ op: 'task.dropTable', id: 'x' }] });
+  assert.equal(bad.ok, false);
+  assert.match(bad.ok === false ? bad.reason : '', /未知/);
+
+  const good = validateCommandResult({ coreOps: [{ op: 'task.setStatus', id: 'x', status: 'done' }] });
+  assert.equal(good.ok, true);
+});
+
+test('task.setStatus 的 status 只能是 open / done', () => {
+  const r = validateCommandResult({ coreOps: [{ op: 'task.setStatus', id: 'x', status: 'archived' }] });
+  assert.equal(r.ok, false, '多一个状态值就是核心数据模型被插件扩张了');
+  assert.match(r.ok === false ? r.reason : '', /open \/ done/);
+});
+
+test('coreOps 缺 id 被拒 —— 不能有「不知道改谁」的操作', () => {
+  const r = validateCommandResult({ coreOps: [{ op: 'task.delete' }] });
+  assert.equal(r.ok, false);
+});
+
+test('命令入参必须是标量，且键数有上限', () => {
+  assert.equal(validateCommandInput({ a: 'x', b: 1, c: true }).ok, true);
+  assert.equal(validateCommandInput({ a: { nested: 1 } }).ok, false, '嵌套对象过不了沙箱');
+  assert.equal(validateCommandInput({ a: [1, 2] }).ok, false, '数组也不行');
+  assert.equal(validateCommandInput({ a: Number.NaN }).ok, false, 'NaN 在 JSON 里表达不了');
+
+  const tooMany: Record<string, string> = {};
+  for (let i = 0; i < 30; i += 1) tooMany[`k${i}`] = 'v';
+  assert.equal(validateCommandInput(tooMany).ok, false, '键数要有上限');
+});
+
+test('命令结果里的 entities 会被逐条校验（信任边界）', () => {
+  assert.equal(validateCommandResult({ entities: [{ type: 'x', data: {} }] }).ok, true);
+  assert.equal(validateCommandResult({ entities: [{ type: '', data: {} }] }).ok, false);
+  assert.equal(validateCommandResult({ entities: [{ type: 'x' }] }).ok, false, '缺 data');
+  assert.equal(validateCommandResult({ entities: 'nope' }).ok, false);
+});
+
+test('message 超长被截断而不是拒收', () => {
+  const r = validateCommandResult({ message: 'x'.repeat(1000) });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok === true ? r.value.message!.length : -1, COMMAND_LIMITS.maxMessage);
+});
+
+test('coreOpType 给出权限要查的实体类型', () => {
+  assert.equal(coreOpType({ op: 'task.setStatus', id: 'a', status: 'done' }), 'task');
+  assert.equal(coreOpType({ op: 'task.delete', id: 'a' }), 'task');
 });
 
 // ---------------------------------------------------------------- 汇总

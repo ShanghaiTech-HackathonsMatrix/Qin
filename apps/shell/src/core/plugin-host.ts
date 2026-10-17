@@ -32,6 +32,32 @@
  *    联动规则见 `onTrustChanged()`，**只认「从 remote-trusted 掉出去」这一种降级**。
  */
 
+import { CORE_NS, CORE_SCHEMAS, HOST_NS, SLOT_TYPE } from './core-entities.ts';
+import { CursorStore } from './cursor-store.ts';
+import { collectSlots, writeSlot, type ResolvedSlot, type SlotWriteResult } from './slot-resolver.ts';
+import type { SecureStore } from '../platform/strategies/kv/types.ts';
+import {
+  coreOpType,
+  SLOT_LIMITS,
+  validateCommandInput,
+  validateCommandResult,
+  type CommandInput,
+  type CoreOp,
+  type SlotConsumption,
+  type SlotEntry,
+  type SlotValidator,
+} from '@matrix/plugin-api';
+
+/** 一次命令执行的结果，返回给调用方（UI 用它显示回执） */
+export interface CommandOutcome {
+  commandId: string;
+  /** 插件想给用户看的话；没有就是 null */
+  message: string | null;
+  entitiesWritten: number;
+  coreOpsApplied: number;
+  /** 不致命的问题（刷盘失败、槽未定义……），UI 可以忽略但调试面板会显示 */
+  warnings: string[];
+}
 import {
   byteLen,
   DataBus,
@@ -185,6 +211,23 @@ export interface PluginHostOptions {
    * 启动时调 `restoreData()` 把记录读回来。
    */
   dataBackend?: DataBackend;
+  /**
+   * 键值存储，用于**同步游标**的持久化（T10）。
+   *
+   * 不传时游标只活在内存里 —— 重启后从头同步。测试与降级可以这样，
+   * 但生产装配点必须传，否则「分页同步」跨重启会丢数据。
+   */
+  kv?: SecureStore;
+  /**
+   * 执行命令里的 `coreOps`。
+   *
+   * **为什么是注入的**：`PluginHost` 不认识 `TaskStore` —— 那是平台层的东西，
+   * 而 `PluginHost` 要能在纯内存环境（测试、将来的沙箱宿主）里跑起来。
+   * 由装配点（`bootstrap`）把「改 TaskStore + 重新投影」这一整段接进来。
+   *
+   * 不配时，带 `coreOps` 的命令会得到 `ENOTSUP` —— **不会假装成功**。
+   */
+  applyCoreOps?: (ops: readonly CoreOp[]) => Promise<PluginResult<number>>;
   /** 覆盖宿主能力清单。默认 `IMPLEMENTED_CAPABILITIES`（测试用） */
   capabilities?: readonly string[];
   now?: () => number;
@@ -197,6 +240,24 @@ export interface PluginHostOptions {
  * 插件 A 就能拿到插件 B 导入的东西。与 DataBus 的记录键是同一个教训。
  */
 const localKey = (pluginId: string, url: string): string => `${pluginId}\u0000${url}`;
+
+/**
+ * 没有 KV 时的游标存储桩 —— 读写都是空操作。
+ *
+ * 为什么要它，而不是让 `cursors` 变成可空：可空会让 `sync()` 里到处出现
+ * `this.cursors?.get(...)`，而「没配 KV」本该是一个安静降级，不是一串分支。
+ */
+class NoopKv implements SecureStore {
+  readonly encrypted = false;
+  async get(): Promise<string | null> {
+    return null;
+  }
+  async set(): Promise<void> {}
+  async remove(): Promise<void> {}
+  async keys(): Promise<string[]> {
+    return [];
+  }
+}
 
 /**
  * 本构建**真的**实现了的能力 —— 不是 v1 规范清单，是 `PluginHost` 这个装配点
@@ -239,10 +300,12 @@ export class PluginHost {
   /** 宿主为插件准备的**本地文档**，键是 `pluginId \0 url`（见 `localKey`） */
   private readonly localDocs = new Map<string, string>();
   /** pluginId → 上一轮同步结束时的游标（`SyncReport.cursor`），下次 sync 时回填 */
-  private readonly cursors = new Map<string, string>();
+  private readonly cursors: CursorStore;
   private readonly maxLocalBytes: number;
   /** 插件数据的持久化后端。没有 = 纯内存（测试与降级） */
   private readonly dataBackend: DataBackend | undefined;
+  /** 命令里 `coreOps` 的执行器。没配时带 coreOps 的命令得到 ENOTSUP */
+  private readonly applyCoreOps: ((ops: readonly CoreOp[]) => Promise<PluginResult<number>>) | undefined;
   private readonly hostAudit: HostAuditEntry[] = [];
   private readonly sink: ((e: HostAuditEntry) => void) | undefined;
   private readonly clock: () => number;
@@ -253,6 +316,9 @@ export class PluginHost {
     this.sink = opts.audit;
     this.maxLocalBytes = opts.maxLocalBytes ?? 8 * 1024 * 1024;
     this.dataBackend = opts.dataBackend;
+    this.applyCoreOps = opts.applyCoreOps;
+    // 没给 KV 时退化成一个永远返回 null 的桩 —— 纯内存模式（测试、降级）
+    this.cursors = new CursorStore(opts.kv ?? new NoopKv());
 
     const backend = opts.trustBackend ?? new MemoryTrustBackend();
     this.trust = new TrustStore({
@@ -267,6 +333,14 @@ export class PluginHost {
     });
 
     this.runtime = new InProcessRuntime(opts.modules);
+
+    // 宿主自己也要声明 schema —— `DataBus.emit()` 不认没有 schema 的类型，
+    // 否则 `projectCoreEntities()` 会被自己刚建的闸拦住。
+    // 注意这**不是**给插件开洞：`emitEntity()` 仍然按插件的 `granted.dataWrite` 判。
+    for (const [type, schema] of Object.entries(CORE_SCHEMAS)) {
+      const r = this.bus.declareSchema(CORE_NS, type, schema);
+      if (!r.ok) throw new Error(`核心实体 ${type} 的 schema 声明失败：${r.message}`);
+    }
 
     this.registry = new PluginRegistry({
       runtime: this.runtime,
@@ -324,7 +398,7 @@ export class PluginHost {
       this.tokens.delete(pluginId);
       // 游标与本地文档也要清 —— 否则重装后会从「上一世的进度」继续，
       // 而且可能读到上一次导入的文件
-      this.cursors.delete(pluginId);
+      this.cursors.remove(pluginId);
       this.clearLocal(pluginId);
       // 卸载会 `dropPlugin` 掉记录，同样要落盘 —— 否则重启后它们又回来了
       const flushed = await this.bus.flush();
@@ -354,7 +428,21 @@ export class PluginHost {
 
     const r = await this.broker.run(pluginId, exports, withCursor);
     if (!r.ok) return r;
-    if (r.data.cursor !== undefined) this.cursors.set(pluginId, r.data.cursor);
+    if (r.data.cursor !== undefined) {
+      const err = await this.cursors.set(pluginId, r.data.cursor);
+      if (err !== null) {
+        r.data.errors.push(err);
+        this.record(pluginId, 'cursor.persist_failed', err);
+      }
+    }
+
+    // 同步之后收集这一轮产出的**槽条目**。放在刷盘之前 —— 槽数据也进 DataBus，
+    // 一起落盘才不会有「实体存住了、时间线上却是空的」这种半截状态。
+    //
+    // 这里刻意**不**对槽失败改判 sync 成败：实体已经写进去了，用户看得见。
+    // 理由与下面刷盘失败那段一致。
+    const slotErrors = this.collectSlotsFor(pluginId);
+    for (const e of slotErrors) r.data.errors.push(e);
 
     // **write-behind 的落盘点。** `emit()` 是同步的（D8），所以这一轮写进去的实体
     // 此刻只在内存里 —— 必须在这里等一次刷盘，否则「同步成功」就是一句空话。
@@ -370,6 +458,292 @@ export class PluginHost {
     return r;
   }
 
+  // ---------------------------------------------------------- 跨命名空间读
+
+  /**
+   * 宿主自己读某个类型的**全部**记录（跨命名空间）。
+   *
+   * 这就是「课程页能看到 ICS 导入的课」的实现基础：`bus.read()` 不带 `owner`
+   * 时按 `type` 遍历整张表，每条记录按**自己所有者**的 schema 裁剪字段。
+   *
+   * ⚠️ 只有宿主能这么读。插件读别人的记录必须显式声明 `permissions.data.read`
+   * —— 那条闸还没做（GAPS §2.3 / T6），所以**别把插件读路径改成调这个方法**。
+   */
+  readShared(type: string, limit = 2000): EntityRecord[] {
+    const r = this.bus.read(HOST_NS, type, { limit });
+    return r.ok ? r.data : [];
+  }
+
+  // ---------------------------------------------------------- 槽
+  /**
+   * 当前所有槽（含孤儿判定所需的信息）。
+   *
+   * 定义方卸载后，槽不再出现在这个表里 —— 数据还在 DataBus 里，但没人渲染，
+   * 也**不再接受写入**（没有 schema 就没法校验）。
+   */
+  slots(): Map<string, ResolvedSlot> {
+    const validators = new Map<string, SlotValidator>();
+    for (const rec of this.registry.list()) {
+      const vs = this.registry.exportsOf(rec.manifest.id)?.slotValidators;
+      if (!vs) continue;
+      for (const d of rec.manifest.contributes?.slots ?? []) {
+        const fn = vs[d.name];
+        if (fn) validators.set(d.name, fn);
+      }
+    }
+    return collectSlots(this.registry, validators);
+  }
+
+  /**
+   * 读某个槽里的条目。**按定义方命名空间限定**，不会串进别处同名的东西。
+   *
+   * 定义方不存在时返回空数组（孤儿槽，数据可能还在磁盘上，但没人认识它）。
+   */
+  readSlot(slotName: string): SlotEntry[] {
+    const slot = this.slots().get(slotName);
+    if (!slot) return [];
+    const r = this.bus.read(slot.owner, SLOT_TYPE, { owner: slot.owner, limit: SLOT_LIMITS.maxItems });
+    if (!r.ok) return [];
+    return r.data.map((rec) => {
+      const d = rec.data as Record<string, unknown>;
+      return {
+        data: (d.values ?? {}) as Record<string, string | number | boolean>,
+        source: typeof d.source === 'string' ? d.source : '',
+        from: typeof d.from === 'string' ? d.from : '',
+        ref: typeof d.ref === 'string' ? d.ref : '',
+      };
+    });
+  }
+
+  /**
+   * 把 `pluginId` 声明的所有消费重新解析一遍，写进对应的槽。
+   *
+   * **整体重写**而不是差分：源实体可能被删、字段可能变，差分要处理三种情况
+   * （新增 / 修改 / 删除），而整体重写只有一种。代价是每次同步重写这个槽的全部
+   * 条目 —— 课表几百条量级，不值得为它引入差分。
+   *
+   * 返回**不致命**的错误描述，由调用方塞进 `SyncReport.errors`。
+   */
+  private collectSlotsFor(pluginId: string): string[] {
+    const rec = this.registry.get(pluginId);
+    if (!rec) return [];
+    const consumptions = rec.manifest.contributes?.consumesSlots ?? [];
+    if (consumptions.length === 0) return [];
+
+    const out: string[] = [];
+    const all = this.slots();
+
+    for (const c of consumptions) {
+      const slot = all.get(c.slot);
+      if (!slot) {
+        out.push(`槽 ${c.slot} 未被任何插件定义（跳过 ${c.from} 的写入）`);
+        continue;
+      }
+
+      // 源实体只取**自己命名空间**下的 —— 不许拿别人的实体往槽里塞
+      const srcTable = this.bus.read(pluginId, c.from, { owner: pluginId, limit: SLOT_LIMITS.maxItems });
+      if (!srcTable.ok) {
+        out.push(`读取 ${c.from} 失败：${srcTable.message}`);
+        continue;
+      }
+
+      const r = this.writeSlotEntries(pluginId, c, slot, srcTable.data);
+      if (!r.ok) out.push(r.message);
+    }
+    void rec;
+    return out;
+  }
+
+  private writeSlotEntries(
+    pluginId: string,
+    consumption: SlotConsumption,
+    slot: ResolvedSlot,
+    sources: readonly EntityRecord[],
+  ): PluginResult<SlotWriteResult> {
+    const granted = this.registry.get(pluginId)?.granted.uiSlots ?? new Set<string>();
+
+    const result = writeSlot({
+      pluginId,
+      consumption,
+      slot,
+      grantedSlots: granted,
+      sources,
+      put: (entry) => this.putSlotEntry(slot, entry),
+      clearConsumer: () => this.clearSlotConsumer(slot, pluginId),
+    });
+
+    if (!result.ok) {
+      this.record(pluginId, 'slot.rejected', `${consumption.slot}: ${result.message}`);
+      return result;
+    }
+
+    this.record(
+      pluginId,
+      'slot.written',
+      `${consumption.slot}: ${result.data.written} 条${result.data.skipped.length > 0 ? `，跳过 ${result.data.skipped.length}` : ''}`,
+    );
+    return result;
+  }
+
+  /** 写一条槽条目到**定义方**的命名空间 */
+  private putSlotEntry(slot: ResolvedSlot, entry: SlotEntry): PluginResult<unknown> {
+    return this.bus.emit(slot.owner, {
+      type: SLOT_TYPE,
+      // 条目 id = 写入方 + 源实体，保证同一个源实体重复写是覆盖而不是堆积
+      id: `${entry.source}\u0001${entry.ref}`,
+      data: {
+        slot: slot.name,
+        values: entry.data,
+        source: entry.source,
+        from: entry.from,
+        ref: entry.ref,
+      },
+    });
+  }
+
+  /** 清掉某个使用方先前写进这个槽的全部条目 */
+  private clearSlotConsumer(slot: ResolvedSlot, pluginId: string): void {
+    const r = this.bus.read(slot.owner, SLOT_TYPE, { owner: slot.owner, limit: SLOT_LIMITS.maxItems });
+    if (!r.ok) return;
+    for (const rec of r.data) {
+      const src = (rec.data as { source?: unknown }).source;
+      if (src === pluginId) this.bus.drop(slot.owner, SLOT_TYPE, rec.id);
+    }
+  }
+
+
+  // ---------------------------------------------------------- 命令
+
+  /**
+   * 执行插件声明过的一条命令（dev.md T14）。
+   *
+   * 顺序是刻意的，每一步失败都**不改任何数据**：
+   *
+   * ```
+   * ① 插件在装、且 manifest 声明了这个 id     → 否则 ENOTFOUND
+   * ② 插件确实实现了它（exports.commands）    → 否则 ENOTSUP
+   * ③ 校验入参                                → 否则 ESCHEMA
+   * ④ 跑纯函数，拿「要做什么」                → 抛异常则 EPLUGIN
+   * ⑤ 校验返回值（信任边界，插件交回来的是不可信数据）
+   * ⑥ 权限：entities 走 emit（data.write）；coreOps 额外查清单 + data.write
+   * ⑦ 落盘、重新收集槽
+   * ```
+   *
+   * ⚠️ **第 ⑦ 步重新收集槽**不是顺手做的：命令改了实体之后，槽里的内容就旧了。
+   * 不重收，时间线上会留着已经删掉的事件。
+   */
+  async runCommand(
+    pluginId: string,
+    commandId: string,
+    input: CommandInput = {},
+  ): Promise<PluginResult<CommandOutcome>> {
+    const rec = this.registry.get(pluginId);
+    if (!rec || rec.state !== 'active') {
+      return fail('ENOTFOUND', `插件未激活: ${pluginId}`);
+    }
+
+    const declared = rec.manifest.contributes?.commands ?? [];
+    if (!declared.some((c) => c.id === commandId)) {
+      return fail('ENOTFOUND', `${pluginId} 未声明命令 "${commandId}"`, { commandId });
+    }
+
+    const handler = this.registry.exportsOf(pluginId)?.commands?.[commandId];
+    if (!handler) {
+      // 用 EMANIFEST 而不是新造一个码：这是**打包缺陷**（声明了没实现），
+      // 不是运行期状况。错误码表是契约的一部分，由差分测试守着，不该为它加一项。
+      return fail(
+        'EMANIFEST',
+        `${pluginId} 声明了命令 "${commandId}" 但没有实现（exports.commands 里缺这一项）`,
+        { commandId },
+      );
+    }
+
+    const checkedInput = validateCommandInput(input);
+    if (!checkedInput.ok) return fail('ESCHEMA', checkedInput.reason);
+
+    let raw: unknown;
+    try {
+      raw = handler(checkedInput.value, { pluginId, now: this.clock() });
+    } catch (e) {
+      const msg = `命令 "${commandId}" 抛异常：${e instanceof Error ? e.message : String(e)}`;
+      this.record(pluginId, 'command.threw', msg);
+      // 契约里没有「插件代码出错」这一档，也不该有 —— 对宿主来说插件抛异常
+      // 就是一次内部失败，区别在 message 里。加码会让每个调用点都要多一个分支。
+      return fail('EINTERNAL', msg, { commandId });
+    }
+
+    const checked = validateCommandResult(raw);
+    if (!checked.ok) {
+      this.record(pluginId, 'command.bad_result', `${commandId}: ${checked.reason}`);
+      return fail('ESCHEMA', `命令 "${commandId}" 返回值不合法：${checked.reason}`, { commandId });
+    }
+
+    const result = checked.value;
+
+    // ⑥ 核心操作的权限：逐项查它碰的类型有没有 data.write
+    const coreOps = result.coreOps ?? [];
+    if (coreOps.length > 0) {
+      const writable = rec.granted.dataWrite;
+      for (const op of coreOps) {
+        const type = coreOpType(op);
+        if (!writable.has(type)) {
+          const msg = `命令 "${commandId}" 要改核心数据 "${type}"，但未获 data.write 授权`;
+          this.record(pluginId, 'command.rejected', msg);
+          return fail('EPERM', msg, { commandId, type });
+        }
+      }
+      if (!this.applyCoreOps) {
+        return fail('EINTERNAL', '本宿主未接入核心数据写入通道（applyCoreOps 未配置）', {
+          commandId,
+        });
+      }
+    }
+
+    // entities：走和 sync 完全一样的通道，所以权限 / schema 校验一处不少
+    let entitiesWritten = 0;
+    for (const e of result.entities ?? []) {
+      const r = this.bus.emit(pluginId, e);
+      if (!r.ok) {
+        this.record(pluginId, 'command.emit_failed', `${commandId}: ${r.message}`);
+        return r;
+      }
+      entitiesWritten += 1;
+    }
+
+    let coreOpsApplied = 0;
+    if (coreOps.length > 0 && this.applyCoreOps) {
+      const applied = await this.applyCoreOps(coreOps);
+      if (!applied.ok) {
+        this.record(pluginId, 'command.core_op_failed', `${commandId}: ${applied.message}`);
+        return applied;
+      }
+      coreOpsApplied = applied.data;
+    }
+
+    // ⑦ 数据变了：刷盘 + 重收槽
+    const flushed = await this.bus.flush();
+    const warnings: string[] = [];
+    if (!flushed.ok) {
+      warnings.push(`持久化失败（数据仍在内存中）：${flushed.message}`);
+      this.record(pluginId, 'data.flush_failed', flushed.message);
+    }
+    warnings.push(...this.collectSlotsFor(pluginId));
+
+    this.record(
+      pluginId,
+      'command.ok',
+      `${commandId}: 实体 ${entitiesWritten} 条，核心操作 ${coreOpsApplied} 条`,
+    );
+
+    return ok({
+      commandId,
+      message: result.message ?? null,
+      entitiesWritten,
+      coreOpsApplied,
+      warnings,
+    });
+  }
+
   // ---------------------------------------------------------- 持久化
 
   /**
@@ -382,6 +756,12 @@ export class PluginHost {
    * 没配 `dataBackend` 时返回 `ok(0)`，不是错误：纯内存模式本来就没什么可读。
    */
   async restoreData(): Promise<PluginResult<number>> {
+    // 游标无论如何都要读回来 —— 它和实体后端是两套存储，没配 `dataBackend` 也可能有游标
+    const restoredCursors = await this.cursors.load();
+    if (restoredCursors > 0) {
+      this.record('*', 'cursor.restored', `${restoredCursors} 个插件的游标`);
+    }
+
     if (!this.dataBackend) return ok(0);
     try {
       const records = await this.dataBackend.loadAll();

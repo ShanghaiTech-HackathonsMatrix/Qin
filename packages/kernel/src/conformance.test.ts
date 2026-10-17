@@ -1499,6 +1499,10 @@ class RecordingBackend implements DataBackend {
     for (const c of changes) {
       if (c.kind === 'dropPlugin') {
         this.records = this.records.filter((r) => r.pluginId !== c.pluginId);
+      } else if (c.kind === 'drop') {
+        this.records = this.records.filter(
+          (r) => !(r.pluginId === c.pluginId && r.type === c.type && r.id === c.id),
+        );
       } else {
         const i = this.records.findIndex(
           (r) => r.pluginId === c.record.pluginId && r.type === c.record.type && r.id === c.record.id,
@@ -1635,6 +1639,49 @@ async function section6(): Promise<void> {
     assert.equal(batch.length, 1);
     assert.equal(batch[0]!.kind, 'dropPlugin', '否则「卸载后立刻重装」会把旧数据写回去');
     assert.equal(await backend.loadAll().then((x) => x.length), 0);
+  });
+
+  await test('单条 drop 会落盘（原来只删内存，重启后记录又回来）', async () => {
+    const backend = new RecordingBackend();
+    const bus = new DataBus({ backend });
+    bus.declareSchema('p', 'note', PERSIST_SCHEMA);
+
+    bus.emit('p', { type: 'note', id: 'n1', data: { title: 'a' } });
+    bus.emit('p', { type: 'note', id: 'n2', data: { title: 'b' } });
+    await bus.flush();
+
+    const r = bus.drop('p', 'note', 'n1');
+    assert.equal(r.ok, true);
+    assert.equal(bus.pendingCount(), 1, '删除必须进队列，否则重启后它又回来了');
+
+    await bus.flush();
+    const last = backend.batches.at(-1)!;
+    assert.equal(last.length, 1);
+    assert.equal(last[0]!.kind, 'drop');
+
+    const second = new DataBus({ backend });
+    second.declareSchema('p', 'note', PERSIST_SCHEMA);
+    second.restore(await backend.loadAll());
+    const left = second.read('p', 'note');
+    assert.equal(left.ok, true);
+    const ids = (left as { data: EntityRecord[] }).data.map((x) => x.id);
+    assert.deepEqual(ids, ['n2'], '删掉的那条不该复活，另一条要还在');
+  });
+
+  await test('drop 会作废同 id 的待落盘 upsert', async () => {
+    const backend = new RecordingBackend();
+    const bus = new DataBus({ backend });
+    bus.declareSchema('p', 'note', PERSIST_SCHEMA);
+
+    bus.emit('p', { type: 'note', id: 'n1', data: { title: 'a' } });
+    bus.drop('p', 'note', 'n1');
+    assert.equal(bus.pendingCount(), 1, 'upsert 被删掉，只剩那条 drop');
+
+    await bus.flush();
+    const batch = backend.batches[0]!;
+    assert.equal(batch.length, 1);
+    assert.equal(batch[0]!.kind, 'drop', '不能把已删的记录再写回去');
+    assert.equal((await backend.loadAll()).length, 0);
   });
 }
 

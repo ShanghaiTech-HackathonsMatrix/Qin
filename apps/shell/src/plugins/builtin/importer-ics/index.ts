@@ -149,6 +149,8 @@ export function importIcs(body: string, settings: Record<string, string>): Parse
       title: clip(sessionTitle, 200),
       startAt,
       endAt,
+      // 这句让 timeline 槽的 map 能取到 type。数据自己带语义，比让映射表硬编码更稳
+      type: 'session',
       // 可选字段一律**省略键**而不是填 undefined：
       // `additionalProperties: false` + 类型检查下，`undefined` 会被判成类型不符。
       // 将来搬进沙箱时 JSON 会直接丢掉 undefined，行为也一致。

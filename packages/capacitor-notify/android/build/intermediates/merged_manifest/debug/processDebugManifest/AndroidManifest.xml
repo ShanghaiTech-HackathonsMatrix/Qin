@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  预留骨架。这里**故意什么都不声明**。
+
+  等 bridge 真正实现时再加，而且只加真正用到的那几个：
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />        Android 13+ 发通知
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />     精确闹钟（用户可关）
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />   重启后重排
+
+  现在加上去就是**假开关**：清单里写着要权限，实际一行代码都没用。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.matrix.notify" >
+
+    <uses-sdk android:minSdkVersion="24" />
+
+</manifest>

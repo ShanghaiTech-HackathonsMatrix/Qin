@@ -9,15 +9,18 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts",
-    "check": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && tsc --noEmit",
-    "sync": "vite build && cap sync android"
+    "test": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts",
+    "check": "node src/core/conformance.test.ts && node src/core/plugin-api-diff.test.ts && node src/core/data-persistence.test.ts && node src/core/core-data-backend.test.ts && node src/core/notify.test.ts && node src/core/slot.test.ts && node src/plugins/builtin/importer-ics/conformance.test.ts && node src/ui/ui.test.ts && tsc --noEmit",
+    "sync": "vite build && cap sync",
+    "sync:android": "vite build && cap sync android",
+    "sync:ios": "vite build && cap sync ios"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.1",
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/core": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
+    "@matrix/capacitor-notify": "*",
     "@matrix/kernel": "*",
     "@matrix/plugin-api": "*",
     "react": "^19.0.0",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@capacitor/android": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
+    "@capacitor/ios": "^8.5.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",

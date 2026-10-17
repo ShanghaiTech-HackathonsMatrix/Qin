@@ -10,3 +10,6 @@ project(':capacitor-community-sqlite').projectDir = new File('../node_modules/@c
 
 include ':capacitor-preferences'
 project(':capacitor-preferences').projectDir = new File('../node_modules/@capacitor/preferences/android')
+
+include ':matrix-capacitor-notify'
+project(':matrix-capacitor-notify').projectDir = new File('../../../packages/capacitor-notify/android')

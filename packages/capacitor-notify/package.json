@@ -1,0 +1,35 @@
+{
+  "name": "@matrix/capacitor-notify",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Matrix 通知桥：各端原生的 notify.local / schedule.exact 实现。当前为**预留骨架**，未接线、未实现。",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "ios/Package.swift",
+    "README.md"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    },
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

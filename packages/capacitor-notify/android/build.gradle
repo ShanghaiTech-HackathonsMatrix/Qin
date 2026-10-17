@@ -1,0 +1,65 @@
+// 预留骨架。激活（把本包加进 apps/shell 的依赖）之前，这个文件不会被任何构建碰到。
+//
+// 一旦激活，`cap sync` 会把本模块 include 进 apps/shell/android/capacitor.settings.gradle
+// （路径由 CLI 解析成到本目录的真实相对路径，不经过软链），
+// 从这里开始它就是一个普通的 Android library 模块。
+//
+// 结构照抄 @capacitor/preferences/android/build.gradle —— 那是官方模板，
+// 已经在同一个工程里验证过能编。自己发挥只会引入「为什么它行我不行」的问题。
+ext {
+    junitVersion = project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'
+    androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+}
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // 与 apps/shell/android/build.gradle 的 AGP 版本保持一致
+        classpath 'com.android.tools.build:gradle:8.13.0'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = "dev.matrix.notify"
+    compileSdk = project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
+
+    defaultConfig {
+        minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
+        targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    lintOptions {
+        abortOnError = false
+    }
+
+    compileOptions {
+        // 与宿主一致：JDK 21
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    testImplementation "junit:junit:$junitVersion"
+}

@@ -14,6 +14,13 @@
 import { fail, ok, type PluginResult } from './errors.ts';
 import { ENTITY_TYPE_RE, FIELD_TYPES, type EntitySchema } from './schema.ts';
 import { validateViewContribution, type ViewContribution } from './ui.ts';
+import {
+  SLOT_LIMITS,
+  validateSlotConsumption,
+  validateSlotDefinition,
+  type SlotConsumption,
+  type SlotDefinition,
+} from './slot.ts';
 
 export type PluginKind = 'declarative' | 'logic' | 'connector' | 'ui' | 'first-party';
 
@@ -99,7 +106,43 @@ export interface ManifestContributes {
    * 宿主会交叉核对：声明了没有实现、或实现了没有声明，都会报警告。
    */
   views?: ViewContribution[];
+  /**
+   * 本插件**定义**的槽 —— 一个公开的数据契约，别的插件可以往里写。
+   *
+   * ## 为什么不是「插件之间互相调用」
+   *
+   * 曾经的提案是给插件一个 `export.functions`，让 A 能 `invoke` B 的函数。
+   * 那会破 D8（插件是纯函数、无回调），而且没有沙箱时它是纯复杂度。
+   * 槽把「我想发布一个可扩展点」变成**纯数据**：
+   *
+   * ```
+   * 定义方（如 Timeline）声明槽名 + 条目 schema
+   * 使用方（如课表）声明「我往这个槽写，字段这样映射」
+   * 宿主在中间：校验、落库、交给定义方渲染
+   * ```
+   *
+   * 谁都不知道对方存在 —— 定义方只认识槽名（一个字符串），使用方也只认识槽名。
+   */
+  slots?: SlotDefinition[];
+  /**
+   * 本插件**消费**的槽 —— 声明「我要往别人的槽里写」。
+   *
+   * 写入仍然受 `permissions.ui.slots` 约束：没在那个白名单里的槽名写不进去。
+   * 两个地方都要写是刻意的 —— `contributes` 说「我要做什么」，
+   * `permissions` 说「用户批准了哪些」，和 `data.write` 是同一套思路。
+   */
+  consumesSlots?: SlotConsumption[];
   commands?: Array<{ id: string; title: string }>;
+  /**
+   * 连接器声明。
+   *
+   * ⚠️ **`syncIntervalMin` 目前不触发任何东西。** 宿主没有后台调度器
+   * （`schedule.*` 在 `IMPLEMENTED_CAPABILITIES` 里不存在），同步只能由
+   * 用户操作或启动触发。字段保留是因为它定义得对，实现它需要
+   * 后台调度这一整块能力 —— 删掉字段只会让将来重新加回来。
+   *
+   * 写插件时**不要假设它会自动同步**。
+   */
   connectors?: Array<{ id: string; authProvider?: string; syncIntervalMin?: number }>;
 }
 
@@ -538,6 +581,36 @@ function validateContributes(raw: unknown, add: (p: string, m: string) => void):
       const seen = new Set<string>();
       views.forEach((v, i) => {
         validateViewContribution(v, `contributes.views[${i}]`, add, seen);
+      });
+    }
+  }
+
+  // --- slots（定义）
+  const slots = raw.slots;
+  if (slots !== undefined) {
+    if (!Array.isArray(slots)) {
+      add('contributes.slots', 'slots 必须是数组（每项 { name, fields }）');
+    } else {
+      const seen = new Set<string>();
+      slots.forEach((s, i) => {
+        const r = validateSlotDefinition(s, `contributes.slots[${i}]`, seen);
+        if (!r.ok) add(`contributes.slots[${i}]`, r.message);
+      });
+    }
+  }
+
+  // --- consumesSlots（使用）
+  const consumes = raw.consumesSlots;
+  if (consumes !== undefined) {
+    if (!Array.isArray(consumes)) {
+      add('contributes.consumesSlots', 'consumesSlots 必须是数组（每项 { slot, from, map }）');
+    } else if (consumes.length > SLOT_LIMITS.maxConsumers) {
+      add('contributes.consumesSlots', `最多 ${SLOT_LIMITS.maxConsumers} 项`);
+    } else {
+      const seen = new Set<string>();
+      consumes.forEach((c, i) => {
+        const r = validateSlotConsumption(c, `contributes.consumesSlots[${i}]`, seen);
+        if (!r.ok) add(`contributes.consumesSlots[${i}]`, r.message);
       });
     }
   }

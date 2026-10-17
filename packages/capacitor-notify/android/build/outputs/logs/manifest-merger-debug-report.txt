@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml:13:1-72
+INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml:13:1-72
+	package
+		INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml:13:11-69
+uses-sdk
+INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml
+INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from D:\EmsiaetKadosh\O\ProjectSaves\Matrix-2\packages\capacitor-notify\android\src\main\AndroidManifest.xml

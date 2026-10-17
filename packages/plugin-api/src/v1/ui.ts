@@ -34,6 +34,7 @@
  * 不碰 DOM、不碰 React、不碰 Node API —— 与 `@matrix/plugin-api` 其余部分一致。
  */
 
+import { validateCommandInput } from './command.ts';
 import { fail, ok, type PluginResult } from './errors.ts';
 
 // ------------------------------------------------------------ 枚举
@@ -93,7 +94,17 @@ export type Action =
   | { kind: 'navigate'; to: string }
   | { kind: 'setUi'; key: string; value: string | number | boolean | null }
   /** 让宿主对该插件跑一次同步。**走的是现有的 broker，不是新通道** */
-  | { kind: 'sync'; settings?: Record<string, string> };
+  | { kind: 'sync'; settings?: Record<string, string> }
+  /**
+   * 调插件自己声明过的命令（`contributes.commands`）。
+   *
+   * 这是**唯一**能改变数据的一档，但它本身不改数据：
+   * 宿主找到 `PluginExports.commands[id]`，跑那个纯函数，拿到「要改什么」，
+   * 校验完再自己动手（见 `command.ts`）。
+   *
+   * `id` 必须是插件在 manifest 里声明过的命令；没声明 → 宿主拒掉。
+   */
+  | { kind: 'command'; id: string; input?: Record<string, string | number | boolean> };
 
 // ------------------------------------------------------------ 节点
 
@@ -421,7 +432,24 @@ export function parseAction(raw: unknown, at = 'action'): PluginResult<Action> {
     return ok({ kind: 'sync' });
   }
 
-  return fail('ESCHEMA', `${at}.kind 只能是 navigate / setUi / sync，实际 "${String(kind)}"`);
+  if (kind === 'command') {
+    const id = raw.id;
+    if (typeof id !== 'string' || id === '') {
+      return fail('ESCHEMA', `${at}.id 必须是非空字符串`);
+    }
+    const input = validateCommandInput(raw.input, `${at}.input`);
+    if (!input.ok) return fail('ESCHEMA', input.reason);
+    return ok(
+      Object.keys(input.value).length === 0
+        ? { kind: 'command', id }
+        : { kind: 'command', id, input: { ...input.value } },
+    );
+  }
+
+  return fail(
+    'ESCHEMA',
+    `${at}.kind 只能是 navigate / setUi / sync / command，实际 "${String(kind)}"`,
+  );
 }
 
 // ------------------------------------------------------------ 小工具

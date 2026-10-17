@@ -165,6 +165,13 @@ export interface DataBusOptions {
 /** 一次刷盘变更。upsert 与 dropPlugin 混在同一批里，按队列插入序应用 */
 export type DataChange =
   | { kind: 'upsert'; record: EntityRecord }
+  /**
+   * 删掉**单条**记录。
+   *
+   * 加这一档是因为原来 `drop()` 只删内存、**不入队** —— 于是「用户删了一条任务，
+   * 重启后它又回来了」。`dropPlugin` 管整包删除，管不了单条。
+   */
+  | { kind: 'drop'; pluginId: string; type: string; id: string }
   | { kind: 'dropPlugin'; pluginId: string };
 
 /**
@@ -198,11 +205,14 @@ export interface DataBackend {
 const keyOf = (pluginId: string, type: string, id: string): string =>
   `${pluginId}\u0000${type}\u0000${id}`;
 
-/** 队列去重键。`dropPlugin` 与记录键用不同前缀，避免撞在一起 */
-const changeKeyOf = (c: DataChange): string =>
-  c.kind === 'upsert'
-    ? keyOf(c.record.pluginId, c.record.type, c.record.id)
-    : `drop\u0000${c.pluginId}`;
+/** 队列去重键。三种变更用不同前缀，避免撞在一起 */
+const changeKeyOf = (c: DataChange): string => {
+  if (c.kind === 'upsert') return keyOf(c.record.pluginId, c.record.type, c.record.id);
+  // 单条删除用 `droprec` 前缀：它和 upsert 用同一个 `keyOf`，
+  // 但必须能和「同 id 的 upsert」区分开，否则两者会互相顶掉队列里的位置
+  if (c.kind === 'drop') return `droprec\u0000${keyOf(c.pluginId, c.type, c.id)}`;
+  return `drop\u0000${c.pluginId}`;
+};
 
 // ------------------------------------------------------------ DataBus
 
@@ -358,16 +368,27 @@ export class DataBus {
    * 跨插件读取时按 schema 的 `shared` 标记裁剪字段 ——
    * 读自己写的记录不裁剪（否则插件拿不回自己存的东西）。
    */
+  /**
+   * 读一张表。
+   *
+   * **默认跨插件可见** —— 按 `type` 遍历整张表，这正是「插件间共享实体类型」的基础。
+   *
+   * ⚠️ 但这也意味着：如果两个插件（或宿主与插件）用了**同一个类型名**，
+   * 读者会同时看到两边的记录。宿主的「核心命名空间」就踩在这个坑上 ——
+   * 所以有 `opts.owner` 用来把结果限定到某一个命名空间。
+   * 需要「只看我自己的」时传 `owner: 自己的 pluginId`。
+   */
   read(
     readerPluginId: string,
     type: string,
-    opts: { limit?: number } = {},
+    opts: { limit?: number; owner?: string } = {},
   ): PluginResult<EntityRecord[]> {
     const table = this.tables.get(type);
     if (!table) return ok([]);
 
     const out: EntityRecord[] = [];
     for (const rec of table.values()) {
+      if (opts.owner !== undefined && rec.pluginId !== opts.owner) continue;
       const sameOwner = rec.pluginId === readerPluginId;
       const schema = this.schemas.get(rec.pluginId)?.get(type);
       out.push({
@@ -425,6 +446,30 @@ export class DataBus {
       for (const fn of this.listeners) fn(evt);
     }
     return removed;
+  }
+
+  /** 卸载：只注册表里删掉一条记录（投影同步用 —— 宿主的 TaskStore 删了，这里也得删） */
+  drop(pluginId: string, type: string, id: string): PluginResult<boolean> {
+    const table = this.tables.get(type);
+    const rec = table?.get(keyOf(pluginId, type, id));
+    if (!table || !rec) return ok(false);
+    if (rec.pluginId !== pluginId) {
+      // 别的插件的记录，不许跨界删
+      return fail('EPERM', `记录 ${type}/${id} 不属于 ${pluginId}`);
+    }
+    table.delete(keyOf(pluginId, type, id));
+    if (table.size === 0) this.tables.delete(type);
+    this.recountUsage();
+    // 排队的 upsert 一起作废，否则「删了又被写回去」
+    this.pending.delete(keyOf(pluginId, type, id));
+
+    // ⚠️ 删除**必须入队**，否则它只活在内存里：重启后记录又回来了。
+    // 这一档以前是缺的 —— `dropPlugin` 管整包，管不了单条。
+    this.enqueue({ kind: 'drop', pluginId, type, id });
+
+    const evt: DataBusEvent = { kind: 'drop', type, pluginId };
+    for (const fn of this.listeners) fn(evt);
+    return ok(true);
   }
 
   /** 卸载：只注销 schema，保留记录（§5.6 的「保留 orphan」） */

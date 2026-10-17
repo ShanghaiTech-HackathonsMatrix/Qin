@@ -399,11 +399,13 @@ await test('控件产出的**每一个** Action 宿主都认得', async () => {
   }
 });
 
-await test('没数据时给出「去导入」按钮，而不是一片空白', () => {
+await test('没数据时给出「去导入」按钮，且指向**真有导入入口**的那一页', () => {
   const tree = renders['course-list']!(ctxOf({ records: [] }));
   const actions = collectActions(tree);
   assert.equal(actions.length, 1);
-  assert.deepEqual(actions[0], { kind: 'navigate', to: 'settings' });
+  // 曾经指向 'settings'，而设置页里并没有导入入口（只在调试面板里）——
+  // 用户点了等于走进死胡同。导入面板现在挂在「课程」页，所以必须指这里。
+  assert.deepEqual(actions[0], { kind: 'navigate', to: 'courses' });
 });
 
 await test('控件 requires ⊆ 插件 permissions.data.read（否则会被画成权限提示）', () => {

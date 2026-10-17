@@ -18,25 +18,24 @@ import {
   type UiNode,
   type UiState,
   type ViewContext,
-  type ViewRecord,
 } from '@matrix/plugin-api';
 
 import type { PluginHost } from '../core/plugin-host';
 import { autoLayout, buildCatalog, type CatalogEntry } from './catalog';
 import type { LayoutStore, LayoutWidget } from './layout';
+import { recordsFor } from './record-selection';
 import { UiNodeView } from './render';
 
-/** 宿主自己的命名空间。`bus.read()` 要求一个读者 id，宿主不是插件 */
-const HOST_ID = 'dev.matrix.shell';
-const MAX_RECORDS = 200;
 
 export interface WidgetPageProps {
   host: PluginHost;
   layout: LayoutStore;
   onNavigate: (to: string) => void;
+  /** 命令改了核心数据后通知宿主刷新（见 `runActionCommand`） */
+  onDataChanged?: () => void;
 }
 
-export function WidgetPage({ host, layout, onNavigate }: WidgetPageProps): ReactElement {
+export function WidgetPage({ host, layout, onNavigate, onDataChanged }: WidgetPageProps): ReactElement {
   const [widgets, setWidgets] = useState<LayoutWidget[] | null>(null);
   const [layoutIssue, setLayoutIssue] = useState<string | null>(null);
   const [uiState, setUiState] = useState<Record<string, UiState>>({});
@@ -76,6 +75,11 @@ export function WidgetPage({ host, layout, onNavigate }: WidgetPageProps): React
         return;
       }
 
+      if (action.kind === 'command') {
+        runActionCommand(host, w.pluginId, action, setNotice, setTick, onDataChanged);
+        return;
+      }
+
       // sync
       setNotice(`${w.pluginId} 正在同步…`);
       void host
@@ -97,7 +101,7 @@ export function WidgetPage({ host, layout, onNavigate }: WidgetPageProps): React
           setNotice(`${w.pluginId} 同步异常：${e instanceof Error ? e.message : String(e)}`);
         });
     },
-    [host, onNavigate],
+    [host, onNavigate, onDataChanged],
   );
 
   if (widgets === null) {
@@ -130,6 +134,129 @@ export function WidgetPage({ host, layout, onNavigate }: WidgetPageProps): React
     ),
     ...rendered,
   );
+}
+
+export interface PageViewProps {
+  host: PluginHost;
+  /** `pluginId` + `viewId` 定位一个 page 视图 */
+  pluginId: string;
+  viewId: string;
+  onNavigate: (to: string) => void;
+  /** 命令改了核心数据后通知宿主刷新（见 `runActionCommand`） */
+  onDataChanged?: () => void;
+}
+
+/**
+ * 渲染一个 **page 级**视图（`kind: 'page'`）—— 占整屏，不参与首页格子布局。
+ *
+ * 和 `WidgetPage` 共用 `nodeFor()`：两者的差别只是「实例从哪来」
+ * （page 没有布局文档，属性就是 `defaultProps`），渲染和安全边界完全一致。
+ */
+export function PageView({
+  host,
+  pluginId,
+  viewId,
+  onNavigate,
+  onDataChanged,
+}: PageViewProps): ReactElement {
+  const [ui, setUi] = useState<UiState>({});
+  const [notice, setNotice] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => host.bus.subscribe(() => setTick((t) => t + 1)), [host]);
+
+  const catalog = useMemo(() => buildCatalog(host), [host, tick]);
+  const entry = catalog.find(pluginId, viewId);
+
+  const dispatch = useCallback(
+    (action: Action): void => {
+      if (action.kind === 'navigate') {
+        onNavigate(action.to);
+        return;
+      }
+      if (action.kind === 'setUi') {
+        setUi((prev) => ({ ...prev, [action.key]: action.value }));
+        return;
+      }
+      if (action.kind === 'command') {
+        runActionCommand(host, pluginId, action, setNotice, setTick, onDataChanged);
+        return;
+      }
+      setNotice(`${pluginId} 正在同步…`);
+      void host
+        .sync(pluginId, {
+          trigger: 'manual',
+          now: Date.now(),
+          ...(action.settings !== undefined ? { settings: action.settings } : {}),
+        })
+        .then((r) => {
+          setNotice(r.ok ? `${pluginId} 同步完成` : `${pluginId} 同步失败：${r.code} ${r.message}`);
+          setTick((t) => t + 1);
+        })
+        .catch((e: unknown) => {
+          setNotice(`${pluginId} 同步异常：${e instanceof Error ? e.message : String(e)}`);
+        });
+    },
+    [host, onNavigate, pluginId, onDataChanged],
+  );
+
+  // page 视图没有布局实例，用一组稳定的伪实例（instanceId = viewId）
+  const fakeWidget: LayoutWidget = {
+    instanceId: viewId,
+    pluginId,
+    viewId,
+    props: {},
+    grid: { w: 12, h: 1 },
+  };
+  const node = nodeFor(entry, fakeWidget, ui, host);
+
+  return createElement(
+    'div',
+    { className: 'ui-stack', style: { flexDirection: 'column', gap: 'var(--gap)' } },
+    ...(notice !== null
+      ? [
+          createElement(
+            'div',
+            { key: '__notice', className: 'ui-text', style: { color: 'var(--fg-dim)', fontSize: 'var(--fs-sm)' } },
+            notice,
+          ),
+        ]
+      : []),
+    createElement(UiNodeView, { node, onAction: dispatch }),
+  );
+}
+
+/**
+ * `command` 动作的公共处理 —— 两个页面组件都要，抽出来免得漂移。
+ *
+ * 注意 `onDataChanged`：命令可能改了**核心数据**（勾选完成、删任务）。
+ * 那些数据落在 `TaskStore` 里，`App` 有自己的 state 副本，不通知它就还是旧的。
+ * 这里不直接调 `reload()`，因为 `ui/` 不该知道 `App` 的存在。
+ */
+function runActionCommand(
+  host: PluginHost,
+  pluginId: string,
+  action: { kind: 'command'; id: string; input?: Record<string, string | number | boolean> },
+  setNotice: (s: string) => void,
+  setTick: (f: (t: number) => number) => void,
+  onDataChanged: (() => void) | undefined,
+): void {
+  setNotice(`${pluginId} 正在执行…`);
+  void host
+    .runCommand(pluginId, action.id, action.input ?? {})
+    .then((r) => {
+      if (!r.ok) {
+        setNotice(`${pluginId} 操作失败：${r.code} ${r.message}`);
+        return;
+      }
+      setNotice(r.data.message ?? `${pluginId} 已完成`);
+      // 改了核心数据才需要惊动 App；纯插件内写入靠 tick 重渲染就够
+      if (r.data.coreOpsApplied > 0) onDataChanged?.();
+      else setTick((t) => t + 1);
+    })
+    .catch((e: unknown) => {
+      setNotice(`${pluginId} 操作异常：${e instanceof Error ? e.message : String(e)}`);
+    });
 }
 
 /**
@@ -186,27 +313,9 @@ function nodeFor(
 }
 
 /**
- * 取控件要的数据。
+ * 取控件要的数据 —— 实现在 `record-selection.ts`。
  *
- * **按插件自己的 `permissions.data.read` 过滤** —— 控件不能借宿主的读取能力
- * 绕过权限。缺权限的类型进 `missing`，由调用方画成可见的提示。
+ * 搬出去的原因：这里 `import React`，而那段逻辑是最该被 Node 测试直接跑的。
+ * 放一起的话测试会被拖进 React 与 vite 的解析规则。
  */
-function recordsFor(
-  host: PluginHost,
-  pluginId: string,
-  types: readonly string[],
-): { records: ViewRecord[]; missing: string[] } {
-  const granted = host.registry.get(pluginId)?.manifest.permissions?.data?.read ?? [];
-  const missing = types.filter((t) => !granted.includes(t));
-
-  const records: ViewRecord[] = [];
-  for (const type of types) {
-    if (!granted.includes(type)) continue;
-    const r = host.bus.read(HOST_ID, type, { limit: MAX_RECORDS });
-    if (!r.ok) continue;
-    for (const rec of r.data) {
-      records.push({ type: rec.type, id: rec.id, data: rec.data, updatedAt: rec.updatedAt });
-    }
-  }
-  return { records, missing };
-}
+export { recordsFor };

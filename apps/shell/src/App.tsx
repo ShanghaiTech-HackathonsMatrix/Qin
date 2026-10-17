@@ -6,13 +6,19 @@ import type { ResolutionReport } from './platform/strategies/types';
 import { applySettings, DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from './app/settings';
 import { loadPlatform } from './app/platform';
 import { uid } from './app/format';
-import TimelineView from './views/TimelineView';
+import TimelineViewPlaceholder from './views/TimelineView';
+// 手写时间线视图已由插件页面取代（见「时间线」标签的 `PageView`）。
+// 保留导入只为让文件继续参与类型检查 —— 里面的分组逻辑将来可能被文档归并。
+void TimelineViewPlaceholder;
 import CoursesView from './views/CoursesView';
 import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
 import DebugPanel from './components/DebugPanel';
 import { LayoutStore } from './ui/layout';
-import { WidgetPage } from './ui/WidgetPage';
+import { PageView, WidgetPage } from './ui/WidgetPage';
+import { PLUGIN_ID as TIMELINE_PLUGIN_ID } from './plugins/builtin/timeline/constants';
+import IcsImportView from './plugins/builtin/importer-ics/IcsImportView';
+import type { CourseCard, CourseDraft } from './core/course-cards';
 
 type Tab = 'home' | 'timeline' | 'courses' | 'settings';
 
@@ -25,6 +31,15 @@ export default function App() {
   const [boot, setBoot] = useState<Boot>({ status: 'loading' });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  /**
+   * 「课程」页的数据：核心课程 + 插件课程，来自 DataBus（T15）。
+   *
+   * 和上面 `courses`（`TaskStore` 的领域对象）**不是同一份**：
+   * 那份给任务编辑器选课程用，是**可写**的真相；
+   * 这份是给页面看的合并视图，插件课程在里面是只读的。
+   * 两套并存是当前架构的实情，不是疏忽 —— 见 `course-cards.ts` 文件头。
+   */
+  const [courseCards, setCourseCards] = useState<CourseCard[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
@@ -58,19 +73,24 @@ export default function App() {
 
   // ---------------------------------------------------------------- 数据
 
-  const reload = useCallback(async () => {
-    if (!platform) return;
-    const [t, c] = await Promise.all([platform.store.listTasks(), platform.store.listCourses()]);
-    setTasks(t);
-    setCourses(c);
-  }, [platform]);
-
-  useEffect(() => { void reload(); }, [reload]);
-
   const flash = useCallback((m: string) => {
     setToast(m);
     window.setTimeout(() => setToast((cur) => (cur === m ? null : cur)), 2200);
   }, []);
+
+  const reload = useCallback(async () => {
+    if (!platform) return;
+    // C 段之后 `store` 是门面，读的就是 DataBus 里的真相 —— 不需要再「投影」。
+    // 以前这里有一次 `projectCore()`，漏调就是「界面改了、时间线没改」。
+    const [t, c] = await Promise.all([platform.store.listTasks(), platform.store.listCourses()]);
+    setTasks(t);
+    setCourses(c);
+
+    // 「课程」页要合并各插件贡献的课程（T15）
+    setCourseCards(platform.listCourseCards());
+  }, [platform]);
+
+  useEffect(() => { void reload(); }, [reload]);
 
   const saveTask = useCallback(async (t: Task) => {
     if (!platform) return;
@@ -86,6 +106,15 @@ export default function App() {
     await reload();
   }, [platform, reload]);
 
+  /**
+   * 切换完成状态。
+   *
+   * ⚠️ **暂时没有 UI 入口**：时间线已经插件化（`PageView` 只读），
+   * 而插件回写数据需要「命令通道」（dev.md T14）。这条函数先留着，
+   * 它是 `TaskStore` 真实的写入路径，等 T14 做完由插件动作驱动。
+   *
+   * 不删的理由：删了下一次做 T14 的人还得重写一遍顺序（读 → 改 → 写 → 重载 → 投影）。
+   */
   const toggleDone = useCallback(async (t: Task) => {
     if (!platform) return;
     await platform.store.putTask({
@@ -96,9 +125,50 @@ export default function App() {
     await reload();
   }, [platform, reload]);
 
+  // 兑现上面注释里的「留着」：不加这一句 tsc 会把未使用的函数删掉（TS6133）
+  void toggleDone;
+
   const saveCourse = useCallback(async (c: Course) => {
     if (!platform) return;
     await platform.store.putCourse(c);
+    await reload();
+  }, [platform, reload]);
+
+  /**
+   * 新建课程。id 与时间戳由**宿主**给 —— 视图不该造主键。
+   *
+   * `draft.title` → `Course.name` 是这里唯一需要记住的不对称：
+   * 领域模型历史上叫 `name`，DataBus 里叫 `title`（见 `core-entities.ts` 的
+   * `projectCourse`）。收敛点就这两处，别在别处再写一遍映射。
+   */
+  const createCourse = useCallback(async (draft: CourseDraft) => {
+    if (!platform) return;
+    const now = Date.now();
+    await platform.store.putCourse({
+      id: uid('course'),
+      name: draft.title,
+      ...(draft.code !== undefined ? { code: draft.code } : {}),
+      ...(draft.color !== undefined ? { color: draft.color } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await reload();
+  }, [platform, reload]);
+
+  /** 改课程。先读回原对象再覆盖 —— `putCourse` 是全量写，不读会把字段抹掉 */
+  const updateCourse = useCallback(async (id: string, draft: CourseDraft) => {
+    if (!platform) return;
+    const all = await platform.store.listCourses();
+    const existing = all.find((c) => c.id === id);
+    // 找不到就什么都不做：可能是别的设备删了。报错只会让用户困惑
+    if (!existing) return;
+    await platform.store.putCourse({
+      ...existing,
+      name: draft.title,
+      ...(draft.code !== undefined ? { code: draft.code } : {}),
+      ...(draft.color !== undefined ? { color: draft.color } : {}),
+      updatedAt: Date.now(),
+    });
     await reload();
   }, [platform, reload]);
 
@@ -264,25 +334,49 @@ export default function App() {
         )}
 
         {tab === 'home' && layoutStore !== null && (
-          <WidgetPage host={p.plugins} layout={layoutStore} onNavigate={goTab} />
+          <WidgetPage
+            host={p.plugins}
+            layout={layoutStore}
+            onNavigate={goTab}
+            onDataChanged={() => void reload()}
+          />
         )}
 
         {tab === 'timeline' && (
-          <TimelineView
-            tasks={tasks}
-            courses={courses}
-            onToggle={(t) => void toggleDone(t)}
-            onEdit={(t) => setEditor({ open: true, task: t })}
+          <PageView
+            host={p.plugins}
+            pluginId={TIMELINE_PLUGIN_ID}
+            viewId="timeline"
+            onNavigate={goTab}
+            // 命令改了核心任务后，App 的 tasks/courseCards 要重新读一遍
+            onDataChanged={() => void reload()}
           />
         )}
 
         {tab === 'courses' && (
-          <CoursesView
-            courses={courses}
-            tasks={tasks}
-            onSave={(c) => void saveCourse(c)}
-            onDelete={(id) => void deleteCourse(id)}
-          />
+          <>
+            <CoursesView
+              courses={courseCards}
+              tasks={tasks}
+              onCreate={(d) => void createCourse(d)}
+              onUpdate={(id, d) => void updateCourse(id, d)}
+              onDelete={(id) => void deleteCourse(id)}
+            />
+
+            {/*
+              导入入口。**必须在这一页**，不是塞在调试面板里 ——
+              「课程」是用户想加课的地方，而 .ics 就是加课最省事的方式。
+
+              ⚠️ 诚实说明：`IcsImportView` 是**第一方插件的 React 侧**，不是控件契约的产物。
+              它被硬编码挂载，因为它需要文件输入 —— 而 `UiNode` 没有 file 原语。
+              控件化的前提是给契约加一个 `file` 原语（或让宿主统一提供文件选择），
+              在那之前第一方插件的 IO 类 UI 只能这样挂。
+            */}
+            <div className="section-title">导入 .ics 课表</div>
+            <div className="card">
+              <IcsImportView platform={p} onImported={() => void reload()} />
+            </div>
+          </>
         )}
 
         {tab === 'settings' && (

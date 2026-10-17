@@ -57,7 +57,7 @@ function renderCourseList(ctx: ViewContext): UiNode {
         {
           type: 'empty',
           text: '还没有课表。导入一份 .ics 就能看到课程与课时。',
-          action: { label: '去导入', onPress: { kind: 'navigate', to: 'settings' } },
+          action: { label: '去导入', onPress: { kind: 'navigate', to: 'courses' } },
         },
       ],
     };

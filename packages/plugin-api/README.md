@@ -365,13 +365,13 @@ entityTypes: Array<{ name: string; schema: EntitySchema }>   // 每项带名字
 | 项 | 校验 | 运行时行为 |
 |---|---|---|
 | `entityTypes` | ✅ 完整形状校验 | ✅ 真正参与落库 |
-| `commands` | ✅ `{ id, title }` 都是非空字符串 | ❌ **没有任何东西读它** —— 命令面板还没做 |
+| `commands` | ✅ `{ id, title }` 都是非空字符串 | ✅ **真的会被执行**（T14）：`Action.kind === 'command'` → 宿主找 `exports.commands[id]` |
 | `connectors` | ✅ `id` 非空、`syncIntervalMin` 为正数 | ❌ **没有任何东西读它** —— 没有调度器 |
-| `views` | ❌ **完全没校验**（`unknown[]`） | ❌ **没有渲染器** |
+| `views` | ✅ 目录形状校验（U1） | ✅ 宿主渲染（U2–U4） |
+| `slots` / `consumesSlots` | ✅ 形状 + 命名空间 + 上限 | ✅ 宿主写入与校验（B 段，§7.10） |
 
-> 换句话说：`connectors[].syncIntervalMin: 30` **不会**让你的插件每 30 分钟跑一次。
+> `connectors[].syncIntervalMin: 30` **不会**让你的插件每 30 分钟跑一次。
 > 现在唯一的驱动方式是宿主显式调 `sync()`。写上它是为将来准备，不是现在生效。
-> 同理 `views` 与 `commands` 现在写了也只是占位 —— 视图引擎与命令面板都没做。
 
 ### 3.5 `integrity`
 
@@ -941,7 +941,8 @@ export const myPlugin: PluginExports = { plan, parsers, renders };
 type Action =
   | { kind: 'navigate'; to: string }                       // 切标签页
   | { kind: 'setUi'; key: string; value: string | number | boolean | null }
-  | { kind: 'sync'; settings?: Record<string, string> };   // 让宿主对你跑一次同步
+  | { kind: 'sync'; settings?: Record<string, string> }    // 让宿主对你跑一次同步
+  | { kind: 'command'; id: string; input?: Record<string, string | number | boolean> };
 ```
 
 **`setUi` 的值只能是 JSON 标量**（字符串 / 有限数字 / 布尔 / null）。
@@ -950,8 +951,13 @@ type Action =
 **`setUi` 写到哪里去了？** 宿主按 `(instanceId, key)` 存。下一次 `render()` 时
 你能在 `ctx.ui[key]` 读到它。**插件自己不持有状态**，这就是 D8 在 UI 上的样子。
 
-> ⚠️ **v1 没有「任意命令」这一档。** 宿主端没有 `contributes.commands` 的执行入口，
-> 加了就是点了没反应的假开关。需要「按钮改数据」的插件，等 `dev.md` T14。
+**`command` 是唯一能改数据的一档**，但它自己不改数据：宿主找到
+`exports.commands[id]`（必须已在 `contributes.commands` 里声明），跑那个纯函数，
+拿到「要做什么」，校验完再自己动手。详见 §7.11。
+
+> ⚠️ **没有「任意命令」这一档。** `id` 必须是 manifest 里声明过的命令；
+> 没声明 → `ENOTFOUND`，声明了没实现 → `EMANIFEST`。
+> 两处都不给，用户点下去一定会得到一句明确的错误，而不是静默无事发生。
 
 ### 7.9.6 `ViewContext`：`render()` 的全部输入
 
@@ -1049,6 +1055,260 @@ export const renders: Record<string, ViewRender> = {
 - [ ] 没有引用网络图片、没有试图写 CSS
 - [ ] 每个 `button.onPress` 都是宿主认识的三种 `Action` 之一
 - [ ] 节点数远低于 2000，嵌套远低于 24 层
+
+---
+
+## 7.10 槽（Slot）：插件之间怎么「互相插入内容」
+
+> 编号说明：本节插在 §7.9（控件）之后、§8（错误码）之前。**后面各节编号刻意不动。**
+
+### 7.10.1 一句话
+
+**定义方**声明一个槽（名字 + 字段 schema），**使用方**声明「我往这个槽写，字段这样映射」，
+**宿主**在中间校验、落库、读给定义方。两边谁都不知道对方存在。
+
+```
+①定义方  manifest.slots: [{ name, fields, orderBy }]
+      │
+②使用方  manifest.consumesSlots: [{ slot, from, map }]
+         permissions.ui.slots: [同一个槽名]      ← 声明 ≠ 授权
+      │
+③宿主    读使用方的实体 → 按 map 映射 → 逐字段校验 → slotValidators → 写进定义方的命名空间
+      │
+④定义方  render() 从 ctx.records 里读到 type === 'slot_entry' 的条目
+```
+
+### 7.10.2 为什么不是「插件互相调函数」
+
+最直觉的写法是：
+
+```ts
+Core.accessPlugin('app.matrix.timeline').invoke('insert', event)   // ❌ 不采用
+```
+
+它同时破三件事：
+
+| 破了什么 | 为什么 |
+|---|---|
+| **D8**（插件是纯函数） | `invoke` 要么是同步函数（那就得持有跨调用状态）、要么是回调；沙箱里同步跨实例调用根本不成立 |
+| **D3**（插件不写存储） | `insert` 内部要落库的话，插件就得碰 DataBus，而插件拿不到 bus |
+| **可复现** | 插件 A 的执行会依赖插件 B 的当前状态，`render()` 就不再是 `ctx` 的函数 |
+
+槽把这些换成**纯数据**：`map` 是 `{ '槽字段': '实体字段' }`，JSON 能表达，
+所以可校验、可序列化、能过沙箱边界。
+
+### 7.10.3 定义方怎么写
+
+```ts
+// manifest.ts
+contributes: {
+  entityTypes: [
+    // 槽条目落在**你自己**的命名空间下，所以要声明这个容器类型
+    { name: 'slot_entry', schema: slotEntryContainer },
+  ],
+  slots: [{
+    name: 'app.matrix.timeline.event',   // 前两段必须是你的 id 命名空间
+    description: '时间线上的一个事件',
+    fields: {
+      startAt: { type: 'number', required: true },
+      endAt:   { type: 'number' },
+      title:   { type: 'string', required: true, maxLength: 200 },
+      detail:  { type: 'string', maxLength: 300 },
+    },
+    maxItems: 2000,
+    orderBy: 'startAt',            // 必须是 number 字段
+  }],
+}
+```
+
+```ts
+// index.ts —— 跨字段校验，就是 CheckEvent() 的纯函数形态
+export const slotValidators = {
+  'app.matrix.timeline.event': (values) => {
+    if (typeof values.endAt === 'number' && values.endAt < values.startAt) {
+      return { ok: false, reason: 'endAt 早于 startAt' };
+    }
+    return { ok: true };
+  },
+};
+```
+
+**单字段的检查（类型 / 必填 / 超长）由 `fields` 做，不需要写校验函数。**
+`slotValidators` 只处理「两个字段之间的关系」。
+
+### 7.10.4 使用方怎么写
+
+```ts
+// manifest.ts
+permissions: {
+  data: { write: ['session'], read: ['session'] },
+  ui: { slots: ['app.matrix.timeline.event'] },   // ← 用户批准
+},
+contributes: {
+  entityTypes: [{ name: 'session', schema: sessionSchema }],
+  consumesSlots: [{
+    slot: 'app.matrix.timeline.event',
+    from: 'session',                              // 你自己的实体类型
+    map: {
+      startAt: 'startAt',
+      endAt:   'endAt',
+      title:   'title',
+      detail:  'location',                        // ← 换个名字也行
+    },
+    // where: { type: 'session' },                // 可选：只取满足常量条件的
+  }],
+}
+```
+
+**注意两处都要写**：`contributes.consumesSlots` 是「我想写」，`permissions.ui.slots`
+是「用户批准了」。和 `data.write` 是同一套思路。
+
+### 7.10.5 宿主做了什么（你可能需要知道的细节）
+
+| 行为 | 说明 |
+|---|---|
+| **整体重写** | 每次 `sync()` 后，宿主把你在这个槽里的条目**全部清掉重写**。所以源实体删了，槽条目也会消失，不用你操心 |
+| **跳过而非失败** | 缺必填字段 / 类型不符 / `where` 不匹配 / 校验器拒绝 → 跳过这一条并记原因，**不影响其余条目和整次同步** |
+| **截断而非拒收** | 字符串超 `maxLength` 会被截断。一条超长备注不该让整节课消失 |
+| **命名空间** | 槽条目存在**定义方**的命名空间下。你和定义方的同名类型不会串 |
+| **`source` 由宿主填** | 你改不了，所以「这条是谁塞进来的」永远可查 |
+| **孤儿槽** | 定义方卸载后，槽消失、数据保留、**不再接受写入**（没有 schema 就没法校验）。定义方重装即恢复 |
+
+### 7.10.6 限制
+
+| 做不到 | 为什么 |
+|---|---|
+| 往任意槽里写 | 必须在 `permissions.ui.slots` 里被授权，否则 `EPERM` |
+| 定义别人命名空间下的槽 | 槽名前两段必须是你 id 的前两段，否则被顶替 |
+| 在 `map` 里做计算 | `map` 只能挑字段。要算就在自己的实体里先算好（`sync()` 时算） |
+| 调用定义方的函数 | 这就是本节开头否掉的东西 |
+| 让槽条目嵌套对象 | 槽字段只有 `string` / `number` / `boolean` |
+
+### 7.10.7 自查清单
+
+- [ ] 槽名前两段是我自己的 id 命名空间
+- [ ] 我在 `contributes.entityTypes` 里声明了 `slot_entry` 容器类型
+- [ ] 必填字段真的必填（少了会被跳过，不会报错，所以很容易漏）
+- [ ] 使用方那边：`consumesSlots` 和 `permissions.ui.slots` **两处都写了**
+- [ ] `map` 里的源字段在我实体的 schema 里存在，且类型对得上
+- [ ] 定义方渲染时对脏数据有防御（旧版本写的条目可能不合新 schema）
+
+---
+
+## 7.11 命令（Command）：控件怎么改数据
+
+### 7.11.1 一句话
+
+控件点击 → `Action{kind:'command', id, input}` → 宿主调你的**纯函数**
+→ 它返回「要改什么」→ 宿主校验后自己动手。
+
+```
+render() 画出 button{onPress:{kind:'command', id:'toggleTask', input:{taskId:'k1', to:'done'}}}
+    ↓ 用户点
+宿主：contributes.commands 里有 toggleTask 吗？→ 有
+    ↓
+宿主：exports.commands.toggleTask 存在吗？→ 存在
+    ↓
+宿主：handler({taskId:'k1',to:'done'}, {pluginId, now}) → { coreOps:[{op:'task.setStatus',...}], message }
+    ↓
+宿主：这个 coreOp 允许吗？→ 查 permissions.data.write 有没有 'task'
+    ↓
+宿主：写 TaskStore → 重新投影 → 重新收集槽 → 刷新界面
+```
+
+### 7.11.2 为什么命令也是纯函数
+
+最省事的做法是给插件一个 `setData()` 回调。**不行**，它同时破三件事：
+
+| 破了什么 | 为什么 |
+|---|---|
+| **D8**（插件是纯函数） | 回调异步、有副作用；同一个 `render()` 可能因回调被调过而返回不同结果 |
+| **D3**（插件不写存储） | 插件一旦能写，`data.write` 权限就形同虚设 |
+| **可测试** | 有状态的命令没法用「同样输入 → 同样输出」钉住 |
+
+所以命令只**描述**改动，宿主**执行**。和槽的 `map`、控件的 `Action` 是同一个思路。
+
+### 7.11.3 怎么写
+
+```ts
+// manifest.ts
+contributes: {
+  commands: [{ id: 'toggleTask', title: '切换任务完成状态' }],
+},
+permissions: {
+  // ⚠️ coreOps 要改核心数据，必须有对应类型的 data.write
+  data: { read: ['task'], write: ['task'] },
+},
+```
+
+```ts
+// index.ts
+export const commands = {
+  toggleTask: (input, ctx) => {
+    const id = typeof input.taskId === 'string' ? input.taskId : '';
+    if (id === '') return { message: '缺少任务 id' };
+    if (input.to !== 'open' && input.to !== 'done') return { message: '目标状态不合法' };
+    return {
+      coreOps: [{ op: 'task.setStatus', id, status: input.to }],
+      message: input.to === 'done' ? '已标记完成' : '已标记未完成',
+    };
+  },
+};
+```
+
+```ts
+// render() 里
+{ type: 'button', label: '标记完成',
+  onPress: { kind: 'command', id: 'toggleTask', input: { taskId: t.id, to: 'done' } } }
+```
+
+**目标状态由你在渲染时算好**（`ctx.records` 里已经能看到当前状态）。
+不要指望宿主提供 `toggle` —— 那是带读-改-写语义的操作，会让命令变成有状态的调用。
+
+### 7.11.4 `CommandResult` 能返回什么
+
+| 字段 | 作用 | 约束 |
+|---|---|---|
+| `entities` | 写进**你自己**命名空间的实体 | 受 `permissions.data.write` + 你的 `entityTypes` schema |
+| `coreOps` | 对**核心数据**的改动意图 | 封闭清单 + `permissions.data.write` |
+| `message` | 给用户看的一行回执 | 超过 300 字符会截断，不拒收 |
+
+`input` 只能是**标量**（字符串 / 有限数字 / 布尔），最多 20 个键，字符串最长 300。
+要传结构就说明你该把它放进自己的实体里。
+
+### 7.11.5 `coreOps` 是封闭清单
+
+目前只有这两项：
+
+| op | 参数 | 对应实体类型 |
+|---|---|---|
+| `task.setStatus` | `id`, `status: 'open' \| 'done'` | `task` |
+| `task.delete` | `id` | `task` |
+
+**加新操作 = 改核心 + 改契约 + 加测试。** 这是刻意的摩擦：
+核心数据模型不该被插件悄悄扩张。提交未知的 `op` 会被 `ESCHEMA` 拒掉，
+而且**在宿主执行任何东西之前**就拒掉。
+
+### 7.11.6 失败都是显式的
+
+| 情况 | 结果 |
+|---|---|
+| `contributes.commands` 里没这个 id | `ENOTFOUND` |
+| 声明了但 `exports.commands` 没有 | `EMANIFEST`（打包缺陷，不是运行期状况） |
+| 入参不合法（嵌套对象、键太多） | `ESCHEMA` |
+| handler 抛异常 | `EINTERNAL`，message 带原始错误 |
+| 返回值不合法（未知 coreOp） | `ESCHEMA`，**且什么都不执行** |
+| `coreOps` 缺 `data.write` | `EPERM`，**且什么都不执行** |
+
+没有一档是「点了没反应」。这是本项目的一条硬规矩：**「假的」比「没有」贵**。
+
+### 7.11.7 自查清单
+
+- [ ] 命令 id 在 `contributes.commands` 里声明了，`exports.commands` 里也实现了
+- [ ] 要改核心数据 → `permissions.data.write` 里有那个类型（否则 `EPERM`）
+- [ ] `input` 只有标量，键数 ≤ 20
+- [ ] 目标状态在 `render()` 时算好，不在命令里查数据
+- [ ] 命令跑完后宿主会重新收集槽 —— 如果你的槽依赖你写的实体，它会自动跟上
 
 ---
 
@@ -1387,9 +1647,9 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 | **`db.raw`** | 需人工审核流程，未搭 |
 | **信任记录持久化** | 目前是内存态，重启即失 |
 | **`ui` 形态的 iframe 宿主** | 契约里有 `kind: 'ui'`，宿主侧未实现（控件目前走的是进程内渲染） |
-| **控件的「任意命令」动作** | 宿主端没有 `contributes.commands` 的执行入口，所以 v1 的 `Action` 只有 `navigate` / `setUi` / `sync`。见 §7.9.5 |
 | **用户改布局的 UI** | 布局能存能读能校验，但改它还得手改 KV。默认布局从目录自动派生 |
 | **插件 CLI** | 没有 `create` / `build` / `sign` |
+| **命令的更多 `coreOp`** | 现在只有 `task.setStatus` / `task.delete`。封闭清单按需扩张，见 §7.11.5 |
 
 ### 🔒 已知的安全债
 
@@ -1409,7 +1669,7 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 
 ```bash
 # 仓库根
-npm test              # plugin-api 71 项 + kernel 69 项 + shell 87 项 + 跨包差分 15 项
+npm test              # plugin-api 115 项 + kernel 85 项 + shell 87 项 + 跨包差分 28 项 + … 共 417 项
 npm run typecheck     # 三个包
 npm run check         # 上面两个
 ```

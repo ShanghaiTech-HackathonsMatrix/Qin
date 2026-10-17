@@ -49,9 +49,17 @@ function formatWhen(ms: number): string {
 
 interface Props {
   platform: Platform;
+  /**
+   * 导入成功后通知宿主。
+   *
+   * 这个组件自己会订阅 DataBus 刷新，但**宿主的 state 副本不会自动跟上** ——
+   * 「课程」页的卡片列表是 `App` 持有的一份快照。不通知它，用户导完课
+   * 会看到上面「我的课程」还是 0 门，而下面写着「导入成功」。
+   */
+  onImported?: () => void;
 }
 
-export default function IcsImportView({ platform }: Props) {
+export default function IcsImportView({ platform, onImported }: Props) {
   const [text, setText] = useState('');
   const [courseTitle, setCourseTitle] = useState('');
   const [offset, setOffset] = useState('480');
@@ -108,10 +116,11 @@ export default function IcsImportView({ platform }: Props) {
       }
       setReport(r.data);
       refresh();
+      onImported?.();
     } finally {
       setBusy(false);
     }
-  }, [platform, text, courseTitle, offset, refresh]);
+  }, [platform, text, courseTitle, offset, refresh, onImported]);
 
   const byCourse = new Map<string, EntityRecord[]>();
   for (const s of sessions) {
@@ -138,7 +147,7 @@ export default function IcsImportView({ platform }: Props) {
         第一方插件，进程内运行。插件<strong>不碰任何 IO</strong>：文件由宿主读、时间由宿主给、
         落库由宿主做 —— 它只把文本算成实体。
         <strong>数据已落盘</strong>（宿主的 KV），刷新 / 重启后自动读回。
-        但<strong>目前只在本页显示</strong>，还没并进「课程」页。
+        导入的课程会出现在上面的「我的课程」里（只读），课时会进「时间线」。
       </div>
 
       <div className="row" style={{ marginBottom: 6 }}>

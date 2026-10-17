@@ -19,7 +19,7 @@ import { CapacitorTransport } from '../core/transport.ts';
 import { createConnector, connectorManifest } from '../plugins/builtin/academic/connectors.ts';
 import { PROVIDERS, PLUGIN_IDS, ENTRY, type Provider } from '../plugins/builtin/academic/model.ts';
 import { ACADEMIC_ID, projectionManifest, projectionPlugin } from '../plugins/builtin/academic/projection.ts';
-import { SIMULATE_ACADEMIC, SimulatedAcademicTransport, simulatedWeekOne } from '../plugins/builtin/academic/simulate.ts';
+import { EphemeralStore, SIMULATE_ACADEMIC, SimulatedAcademicTransport, simulatedWeekOne } from '../plugins/builtin/academic/simulate.ts';
 import { icsImporter, PLUGIN_ID as ICS_PLUGIN_ID, manifest as icsManifest } from '../plugins/builtin/importer-ics/index.ts';
 import {
   PLUGIN_ID as TIMELINE_PLUGIN_ID,
@@ -145,6 +145,7 @@ export async function bootstrap(): Promise<Platform> {
       · 其它           → 不传 transport，用默认实现
   */
   const academicNative = academicNativeAvailable();
+  const simulated = SIMULATE_ACADEMIC && !academicNative;
   const academicTransport = SIMULATE_ACADEMIC
     ? new SimulatedAcademicTransport(new CapacitorTransport())
     : academicNative ? new AcademicTransport(new CapacitorTransport()) : null;
@@ -174,6 +175,12 @@ export async function bootstrap(): Promise<Platform> {
   // 初值是 null：命令若在装配完成前跑，会显式失败而不是静默不生效。
   let coreStore: TaskStore | null = null;
 
+  /*
+    模拟态换一个只在内存里的库：合成的快照绝不能落进真库，
+    否则下次用正常模式打开，假数据看起来和真数据一模一样。
+  */
+  const dataKv = simulated ? new EphemeralStore() : kv.value;
+
   const plugins = new PluginHost({
     maxSteps: 605,
     sessionFor: academicSessionFor,
@@ -188,10 +195,10 @@ export async function bootstrap(): Promise<Platform> {
     // 其它命名空间 → KV。对外只有一个 `DataBus`，差异只在这一个后端里。
     dataBackend: new CompositeBackend(
       new CoreStoreBackend(store),
-      new KvEntityBackend(kv.value),
+      new KvEntityBackend(dataKv),
     ),
     // 游标要活过重启（T10）：分页同步靠它，丢了会静默重复 / 跳过数据
-    kv: kv.value,
+    kv: dataKv,
     /**
      * 命令里的 `coreOps`（T14）。
      *
@@ -287,7 +294,6 @@ export async function bootstrap(): Promise<Platform> {
     warnings.push('本平台没有可用的本地通知桥，不能安排提醒。');
   }
 
-  const simulated = SIMULATE_ACADEMIC && !academicNative;
   // 模拟时登录/清除都是空操作：没有真会话要开，也没有真会话要清
   const academicLogin = async (_provider: Provider): Promise<{completed: boolean}> => simulated
     ? {completed: true}
@@ -295,7 +301,7 @@ export async function bootstrap(): Promise<Platform> {
   const academicClear = async (): Promise<void> => {
     if (!simulated) await PlatformSessions.clear();
   };
-  const academic=new AcademicService({host:plugins,kv:kv.value,notify,
+  const academic=new AcademicService({host:plugins,kv:dataKv,notify,
     available: academicNative || simulated,
     login: academicLogin,
     clear: academicClear});

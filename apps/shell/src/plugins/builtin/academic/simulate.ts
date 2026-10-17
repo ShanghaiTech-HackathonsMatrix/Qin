@@ -15,6 +15,7 @@
  */
 
 import type { Transport, TransportRequest, TransportResponse } from '../../../core/types.ts';
+import type { SecureStore } from '../../../platform/strategies/kv/types.ts';
 import { ENTRY, PROVIDERS, type Provider } from './model.ts';
 
 /**
@@ -208,3 +209,34 @@ export class SimulatedAcademicTransport implements Transport {
 }
 
 export type { Provider };
+
+/**
+ * 只在内存里的键值存储。
+ *
+ * 模拟同步用的是真连接器，它会**真的写**快照。写进同一个 IndexedDB 的话，
+ * 合成的课表和作业会留在库里，下次用正常模式打开就分不清哪些是真的了 ——
+ * 这是最坏的一种污染：假数据看起来和真数据一模一样。
+ *
+ * 所以模拟态换一个进程内的库：关掉页面就没了，`?demo=1` 每次从「未同步」
+ * 开始，正好也符合演示的讲法（先没数据，点同步，数据出来）。
+ */
+export class EphemeralStore implements SecureStore {
+  readonly encrypted = false;
+  private readonly map = new Map<string, string>();
+
+  async get(key: string): Promise<string | null> {
+    return this.map.get(key) ?? null;
+  }
+
+  async set(key: string, value: string): Promise<void> {
+    this.map.set(key, value);
+  }
+
+  async remove(key: string): Promise<void> {
+    this.map.delete(key);
+  }
+
+  async keys(): Promise<string[]> {
+    return [...this.map.keys()];
+  }
+}

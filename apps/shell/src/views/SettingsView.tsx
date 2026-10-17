@@ -83,9 +83,16 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
               </span>
             </div>
 
-            <p className="conn__note" data-tone={academic.statuses[item.id]?.startsWith('同步成功') === true ? 'ok' : 'info'}>
-              {academic.statuses[item.id] ?? '尚未同步'}
-            </p>
+            {/*
+              有状态就显示状态，没有就看快照。
+              早先这里写死 `?? '尚未同步'`，于是恢复出上次同步的快照后，
+              徽标写「已同步」、下面一行写「尚未同步」，自相矛盾。
+            */}
+            {academic.statuses[item.id] !== undefined && (
+              <p className="conn__note" data-tone={academic.statuses[item.id]?.startsWith('同步成功') === true ? 'ok' : 'info'}>
+                {academic.statuses[item.id]}
+              </p>
+            )}
             {snapshot !== undefined && (
               <p className="conn__note" data-tone="info">
                 上次成功：{stamp(snapshot.syncedAt)} · 课程 {snapshot.courses.length} · 作业 {snapshot.assignments.length}

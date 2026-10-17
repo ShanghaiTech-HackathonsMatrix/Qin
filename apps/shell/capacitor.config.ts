@@ -7,11 +7,11 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     webContentsDebuggingEnabled: true,
-    backgroundColor: '#0f1115',
+    backgroundColor: '#f7f7f3',
   },
   ios: {
     // 与 Android 的 backgroundColor 对齐，避免启动瞬间白闪
-    backgroundColor: '#0f1115',
+    backgroundColor: '#f7f7f3',
     // 内容铺到安全区里，由 CSS 的 env(safe-area-inset-*) 自己处理内边距。
     // 交给系统自动缩进的话，底部 Tab 栏在带刘海的机型上会多出一条空隙。
     contentInset: 'never',

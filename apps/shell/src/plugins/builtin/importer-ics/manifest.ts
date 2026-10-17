@@ -11,6 +11,8 @@
 
 import type { EntitySchema, Manifest } from '@matrix/plugin-api';
 
+import { views } from './views.ts';
+
 /** `app.matrix.*` 是保留前缀：只有宿主显式传 `allowReservedPrefix: true` 才装得上 */
 export const PLUGIN_ID = 'app.matrix.importer.ics';
 
@@ -71,7 +73,10 @@ export const manifest: Manifest = {
   // entry 不填：first-party 在 KINDS_WITHOUT_ENTRY 里，进程内运行时也不读它。
   engines: { platform: ['android', 'web', 'windows'] },
   permissions: {
-    data: { write: ['course', 'session'], read: ['course'] },
+    // `read` 里要有 session：插件的控件要按课程统计课时数。
+    // 少了它，`WidgetPage` 会把该控件画成「缺少 data.read 权限」的提示 —— 那是刻意的，
+    // 控件不能借宿主的读取能力绕过插件自己的权限。
+    data: { write: ['course', 'session'], read: ['course', 'session'] },
     /** 缺了这一项，`source: 'host'` 的请求会被宿主以 EPERM 拒掉 */
     local: true,
   },
@@ -80,6 +85,9 @@ export const manifest: Manifest = {
       { name: 'course', schema: courseSchema },
       { name: 'session', schema: sessionSchema },
     ],
+    // 目录在这里（纯数据），实现在 `renders` 里（`index.ts` 导出）。
+    // 宿主会交叉核对两边，声明了没实现会报警告。
+    views,
     commands: [{ id: 'import', title: '导入 ICS' }],
   },
 };

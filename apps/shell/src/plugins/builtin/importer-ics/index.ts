@@ -15,6 +15,7 @@ import type { ParseInput, ParseResult, ParsedEntity, PlanInput, PluginExports, R
 
 import { LOCAL_URL } from './manifest.ts';
 import { parseCalendar, toEpochMs } from './parse-ics.ts';
+import { renders } from './views.ts';
 
 export { manifest, LOCAL_URL, PLUGIN_ID } from './manifest.ts';
 
@@ -61,7 +62,9 @@ export const parsers: Record<string, (input: ParseInput) => ParseResult> = {
   ics: (input: ParseInput): ParseResult => importIcs(input.body, pendingSettings),
 };
 
-export const icsImporter: PluginExports = { plan, parsers };
+export const icsImporter: PluginExports = { plan, parsers, renders };
+
+export { renders, views } from './views.ts';
 
 // ------------------------------------------------------------ 纯函数：ICS → 实体
 

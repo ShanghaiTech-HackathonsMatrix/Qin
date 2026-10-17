@@ -852,6 +852,206 @@ const DEFAULT_QUOTA = {
 
 ---
 
+## 7.9 控件（UI）：把数据画成界面
+
+> 编号说明：本节插在 §7（数据总线）与 §8（错误码）之间。**后面各节编号刻意不动**，
+> 这样已有的交叉引用全部保持有效。
+
+### 7.9.1 一句话
+
+插件**不持有 UI**。它产出一棵 `UiNode` 树，宿主把树渲染成 DOM。
+输入**不回调插件**，输入变成 `Action` 由宿主路由。
+
+```
+数据 → render(纯函数) → UiNode → 宿主渲染 → 用户操作
+     → Action → 宿主路由 → 改数据 → 重新 render
+```
+
+### 7.9.2 为什么是数据不是代码
+
+三个理由，缺一个这个设计就不成立：
+
+1. **D8 不允许回调。** 插件是纯函数，没有异步宿主 API，也不持有状态。
+   一个「处理点击」的 React 组件必须有回调，有回调就得有活的插件对象 —— 那就把 D8 拆了。
+2. **沙箱只能传 JSON。** 将来第三方插件跑在 QuickJS / iframe 里，React 组件跨不过去，
+   JSON 树天然可以。现在写回调，等沙箱落地时整个 UI 层要重写。
+3. **能在 Node 里测。** `render()` 是纯函数，断言输出树就行 —— 不需要 jsdom、不需要浏览器。
+   宿主的渲染器也是用 `createElement` 写成 `.ts` 的，所以「UI 能测」不是口号。
+
+### 7.9.3 目录在 manifest，实现在代码
+
+两处必须对上，宿主会**交叉核对**（对不上会记警告，不会崩）：
+
+```ts
+// manifest.ts —— 纯数据，可校验、可序列化
+contributes: {
+  views: [
+    {
+      id: 'course-list',          // kebab-case，插件内唯一
+      title: '课程',
+      kind: 'widget',             // 'page' 占整屏 | 'widget' 嵌进布局格子
+      requires: ['course', 'session'],   // 要读哪些实体类型
+      defaultProps: {},                  // 布局没配参数时用这份
+      defaultSize: { w: 12, h: 1 },      // 栅格尺寸，1..12
+    },
+  ],
+}
+```
+
+```ts
+// index.ts —— 实现，键是同一个 id
+import type { PluginExports, UiNode, ViewContext } from '@matrix/plugin-api';
+
+export const renders = {
+  'course-list': (ctx: ViewContext): UiNode => ({ /* … */ }),
+};
+
+export const myPlugin: PluginExports = { plan, parsers, renders };
+```
+
+> ⚠️ `requires` **不会**放宽你自己的 `permissions.data.read`。
+> 宿主按你的权限过滤，缺权限的类型会让控件被画成「缺少 data.read 权限」的提示。
+> 这条是刻意的：控件不能借宿主的读取能力绕过插件权限。
+
+### 7.9.4 原语完整参考
+
+**封闭集** —— 不在表里的 `type` 一律 `ESCHEMA`。
+
+| `type` | 字段 | 说明 |
+|---|---|---|
+| `stack` | `children`（必填）、`direction?: 'row'\|'column'`、`gap?`、`align?: 'start'\|'center'\|'end'\|'stretch'`、`wrap?: boolean` | 唯一的布局容器。可任意嵌套 |
+| `card` | `children`（必填）、`title?: string`、`tone?` | 带边框的分组块 |
+| `text` | `text`（必填）、`tone?`、`size?: 'sm'\|'md'\|'lg'`、`weight?: 'normal'\|'bold'` | 文本，`\n` 会保留 |
+| `button` | `label`（必填）、`onPress`（必填 `Action`）、`tone?`、`icon?`、`disabled?` | 缺 `onPress` 会被拒 —— 不允许点不动的按钮 |
+| `list` | `items`（必填）、`empty?: UiNode` | `items` 为空且有 `empty` 时渲染 `empty` |
+| `badge` | `text`（必填）、`tone?` | 小圆角标签 |
+| `empty` | `text`（必填）、`action?: { label, onPress }` | 空态，可带一个动作 |
+| `divider` | — | 分隔线 |
+
+**`tone`**（语义色，**不是**颜色值）：`normal` `faint` `accent` `danger` `success` `warning`
+
+**`gap`**：`none` `sm` `md` `lg`（默认 `md`）
+
+**`icon`**（核心图标，**不是**图片 URL —— 插件零网络）：`calendar` `clock` `check`
+`close` `plus` `search` `book` `warning`
+
+### 7.9.5 Action：控件唯一的输出通道
+
+```ts
+type Action =
+  | { kind: 'navigate'; to: string }                       // 切标签页
+  | { kind: 'setUi'; key: string; value: string | number | boolean | null }
+  | { kind: 'sync'; settings?: Record<string, string> };   // 让宿主对你跑一次同步
+```
+
+**`setUi` 的值只能是 JSON 标量**（字符串 / 有限数字 / 布尔 / null）。
+瞬时 UI 状态要保持可序列化 —— 将来存进布局文档、跨 iframe 传递都不需要改协议。
+
+**`setUi` 写到哪里去了？** 宿主按 `(instanceId, key)` 存。下一次 `render()` 时
+你能在 `ctx.ui[key]` 读到它。**插件自己不持有状态**，这就是 D8 在 UI 上的样子。
+
+> ⚠️ **v1 没有「任意命令」这一档。** 宿主端没有 `contributes.commands` 的执行入口，
+> 加了就是点了没反应的假开关。需要「按钮改数据」的插件，等 `dev.md` T14。
+
+### 7.9.6 `ViewContext`：`render()` 的全部输入
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `instanceId` | `string` | 布局里的实例 id。同一个视图被摆两次也不会串状态 |
+| `props` | `Record<string, unknown>` | 布局配的参数，已与 `defaultProps` 合并 |
+| `records` | `readonly ViewRecord[]` | 宿主按 `requires` 取好的实体。没数据是 `[]`，不是 `undefined` |
+| `ui` | `Record<string, string\|number\|boolean\|null>` | 这个实例的瞬时状态 |
+| `locale` | `string` | 如 `'zh-CN'` |
+| `capabilities` | `readonly string[]` | 宿主能力清单（之前搁置的探测通道，在这里终于有用） |
+| `now` | `number` | 宿主时间。**插件没有自己的时钟**，别用 `Date.now()` |
+
+`ViewRecord` = `{ type, id, data, updatedAt }`。`data` 是实体字段（已经过 schema 校验）。
+
+### 7.9.7 自由度：组合几乎不限，积木和样式受限
+
+**能做的**：任意嵌套（`stack` 里套 `card` 里套 `list`，层数不限，受 24 层上限约束）、
+条件渲染（你自己算好树）、列表、徽章、空态、语义色、核心图标。
+
+**做不到的**（明确列出来，别试）：
+
+| 想做的事 | 为什么不行 |
+|---|---|
+| 任意 CSS、自定义颜色 / 间距数值 | 只能从 `tone` / `gap` / `size` 枚举里选。开放任意样式会立刻丢掉「UI 一致」+「沙箱能跑」+「能测」三样 |
+| 网络图片、任意图标 | 插件零网络（D2）。图标只能从 `ICON_NAMES` 里挑 |
+| 图表、canvas、拖拽、富文本、万行虚拟列表 | 没有这些原语 |
+| 发明新原语 | 原语是封闭集。要新原语 = 改核心（这是**设计决定**，不是缺口） |
+| 直接监听 DOM 事件 | 只能通过 `Action` |
+
+**限额**（`UI_LIMITS`）：节点数 2000、嵌套 24 层、单个文本 8000 字符。
+超了就是 `ESCHEMA`。这些不是建议，是硬上限 —— 一个 `while` 循环就能撞到。
+
+### 7.9.8 最小完整示例
+
+```ts
+// views.ts
+import type { UiNode, ViewContext, ViewContribution, ViewRender } from '@matrix/plugin-api';
+
+export const views: ViewContribution[] = [
+  { id: 'my-list', title: '我的列表', kind: 'widget', requires: ['note'], defaultSize: { w: 12, h: 2 } },
+];
+
+export const renders: Record<string, ViewRender> = {
+  'my-list': (ctx: ViewContext): UiNode => {
+    const notes = ctx.records.filter((r) => r.type === 'note');
+    const showAll = ctx.ui.showAll === true;
+
+    if (notes.length === 0) {
+      return {
+        type: 'card',
+        title: '笔记',
+        children: [
+          {
+            type: 'empty',
+            text: '还没有笔记。',
+            action: { label: '去设置', onPress: { kind: 'navigate', to: 'settings' } },
+          },
+        ],
+      };
+    }
+
+    return {
+      type: 'card',
+      title: `笔记（${notes.length}）`,
+      children: [
+        {
+          type: 'button',
+          label: showAll ? '收起' : '展开',
+          icon: 'search',
+          // 点一下改瞬时状态，宿主会带着新的 ctx.ui 再调你一次
+          onPress: { kind: 'setUi', key: 'showAll', value: !showAll },
+        },
+        {
+          type: 'list',
+          items: notes.map((n) => ({
+            type: 'text',
+            text: String(n.data.title ?? '无标题'),
+          })),
+        },
+      ],
+    };
+  },
+};
+```
+
+### 7.9.9 自查清单
+
+写完控件，逐条过：
+
+- [ ] `render()` 里**没有** `Date.now()` / `Math.random()` / 模块级变量读写 —— 它必须是纯的
+- [ ] `manifest.contributes.views` 的 id 和 `renders` 的键**完全一致**
+- [ ] `requires` 里的每个类型都在自己的 `permissions.data.read` 里
+- [ ] 空数据有 `empty` 节点，不是一片空白
+- [ ] 没有引用网络图片、没有试图写 CSS
+- [ ] 每个 `button.onPress` 都是宿主认识的三种 `Action` 之一
+- [ ] 节点数远低于 2000，嵌套远低于 24 层
+
+---
+
 ## 8. 错误码
 
 **跨边界一律不抛异常，改传结构化结果。**
@@ -1164,6 +1364,8 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 | **游标跨轮延续**（`SyncReport.cursor` → 宿主存下 → `PlanInput.cursor`） | `broker.ts` / `plugin-host.ts` |
 | **能力清单由装配点申报**（`registry.capabilities()` 缺省空数组，不再拿规范当实现） | `registry.ts` / `plugin-host.ts` |
 | **写闸**：`bus.emit` 查 `permissions.data.write`（与 `net` / `local` 同一条规则） | `plugin-host.ts` 的 `emitEntity` |
+| **控件（UI）**：`UiNode` 8 原语 + `parseUiNode` 安全边界 + `renders` 交叉核对 | `ui.ts` / `apps/shell/src/ui/` |
+| **布局文档**：`layout.<profileId>` 存 KV，带版本与校验 | `apps/shell/src/ui/layout.ts` |
 | 内核 ↔ 核心层接线（含信任撤销联动） | `apps/shell/src/core/plugin-host.ts` |
 
 ### ⚠️ 提案（未经真实插件检验，改起来便宜）
@@ -1180,12 +1382,13 @@ const DEFAULT_MAX_STEPS = 16;        // 单轮同步的状态机步数上限 →
 | **`installBuiltin()`** | `allowReservedPrefix` 现在是个裸布尔，任何 `install()` 调用方都能传 true。第三方安装路径出现前必须收成独立入口 |
 | **能力探测的交付通道** | `HandshakeOk` 这个类型**从没被构造过**，插件是纯函数也拿不到它 —— 所以插件现在**无法探测**宿主能力（§9）。**短期实验已明确决定不做**：现在只有第一方插件，它们本来就知道宿主有什么。要落地时是**纯加法**（`PlanInput` 加一个可选字段，老插件不受影响） |
 | **QuickJS 沙箱** | 当前只有进程内运行时（第一方插件）。第三方插件**还不能跑** |
-| **插件签名校验** | 验签器是「全部放行」，所有插件目前都判为 `restricted` |
+| **插件签名校验** | **不做**（短期实验的明确决定）。`compiledInVerifier` 只回答「这段代码在不在应用包里」，不回答「签名对不对」。准入的真正闸门是 `InProcessRuntime.load()` → 不在 `modules` 里就 `ENOTFOUND`。⚠️ 所以 `signed` 这个等级名对第一方**名不副实**，别把它当「验过了」 |
 | **`net.stream`** | 二期能力，不在 `HOST_CAPABILITIES_V1` 里 |
 | **`db.raw`** | 需人工审核流程，未搭 |
 | **信任记录持久化** | 目前是内存态，重启即失 |
-| **`ui` 形态的 iframe 宿主** | 契约里有 `kind: 'ui'`，宿主侧未实现 |
-| **布局引擎 / 组件注册表** | `contributes.views` 会被解析但不会渲染 |
+| **`ui` 形态的 iframe 宿主** | 契约里有 `kind: 'ui'`，宿主侧未实现（控件目前走的是进程内渲染） |
+| **控件的「任意命令」动作** | 宿主端没有 `contributes.commands` 的执行入口，所以 v1 的 `Action` 只有 `navigate` / `setUi` / `sync`。见 §7.9.5 |
+| **用户改布局的 UI** | 布局能存能读能校验，但改它还得手改 KV。默认布局从目录自动派生 |
 | **插件 CLI** | 没有 `create` / `build` / `sign` |
 
 ### 🔒 已知的安全债

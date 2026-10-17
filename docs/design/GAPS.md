@@ -1,6 +1,6 @@
 # 缺口清单与第一批插件候选
 
-> **核实方式**：逐项读代码 + 跑测试（`npm run check`，**326 项断言**全绿），
+> **核实方式**：逐项读代码 + 跑测试（`npm run check`，**362 项断言**全绿），
 > 不是照抄 `DESIGN.md` 的承诺。凡标了 `文件:行号` 的都可以自己去看。
 >
 > **本轮已复核**：能力清单那条已经修好（§1 现在是 ✅），各套件断言数重新数过，
@@ -19,13 +19,14 @@
 
 | 套件 | 断言数 |
 |---|---|
-| `packages/plugin-api` | 93 |
+| `packages/plugin-api` | 108 |
 | `packages/kernel` | 85 |
 | `apps/shell` 核心层 | 87 |
 | 跨包差分 | 28 |
 | 数据持久化 | 11 |
 | ICS 插件 | 22 |
-| **合计** | **326** |
+| 控件 UI 系统 | 21 |
+| **合计** | **362** |
 
 这些覆盖了「插件怎么被描述、怎么被校验、怎么被驱动、怎么被隔离」，可以放心依赖。
 
@@ -103,12 +104,26 @@ README §9 又反复教作者「查 `capabilities.includes(...)`」——
 扩展是**纯加法**（可选字段，老插件不受影响），所以推迟没有代价。见 `dev.md` §3.1。
 **注意顺序**：必须先修好清单（已完成）再开这个通道，否则塞进去的就是假清单。
 
-### 1.3 `contributes.views` 声明了但不校验、不渲染 ❌
+### 1.3 `contributes.views` 已修好 ✅（U1–U6）
 
-`manifest.ts:93` 是 `views?: unknown[]` —— 唯一一个完全没被 `validateContributes` 碰过的贡献项。
-而且没有布局引擎（D5 说布局 JSON 是纯数据，但渲染器一行都没有）。
+原来 `views?: unknown[]` —— 唯一一个完全没被 `validateContributes` 碰过的贡献项，
+而且渲染器一行都没有。现在：
 
-后果：**现在没有任何「视图类插件」能落地**。所有 UI 还是 `apps/shell/src/views/` 里的手写 React。
+| | |
+|---|---|
+| **形状** | `ViewContribution[]`：`{ id, title, kind: 'page' \| 'widget', requires?, defaultProps?, defaultSize? }`，由 `validateContributes` 全量校验（id kebab-case 且不重复、kind 枚举、requires 是字符串数组、defaultSize 1..12） |
+| **实现** | `PluginExports.renders`：`Record<viewId, (ctx) => UiNode>`。目录在 manifest、实现在代码，宿主**交叉核对**两边 |
+| **渲染** | `apps/shell/src/ui/render.ts`：8 个封闭原语 → React。用 `createElement` 写成 `.ts`，所以**在 Node 里能断言，不需要 jsdom** |
+| **布局** | `layout.<profileId>` 存 KV（D5 的布局 JSON 是纯数据），带版本号与校验，坏数据退回默认并备份 |
+| **安全边界** | `parseUiNode()` 把插件产出的树**重建**一遍：节点数 2000 / 深度 24 / 文本 8000 字符上限，未知字段全部丢弃 |
+| **第一个控件** | ICS 课程列表（只读 + `navigate` / `setUi`），21 项断言钉住「控件产出的每个 Action 宿主都认得」 |
+
+**自由度是有意的限制**：原语封闭、样式只能选语义档位（`tone` / `gap` / `size`）、
+图标只能是核心枚举、不能引网络图片。换来「插件 UI 一定长得像 Matrix」+
+「沙箱里能跑」+「Node 里能测」。
+
+**仍然缺的**：`contributes.commands` 没有执行入口，所以 v1 的 `Action` 里
+**没有**「任意命令」这一档（见 `dev.md` T14）。用户改布局也还没有 UI。
 
 ---
 
@@ -213,7 +228,7 @@ Electron 端只需要换传输层与存储后端。
 | 项 | 说明 |
 |---|---|
 | `bus.read` 无读闸 🔶 | `data.read` 不检查。补不了的原因：唯一调用方是 shell 自己的 Timeline，没有插件身份。等 Timeline 变插件才补得动 |
-| `contributes.views` 无校验 ❌ | 见 §1.3 |
+| `contributes.views` 无校验 ~~❌~~ | ✅ 已修好（U1），见 §1.3 |
 | `EntitySchema` 无 `oneOf` / 嵌套对象 🔶 | 扁平字段 + 数组。注意：`array.items` **会**逐项递归校验，`object` **不**递归 —— 复杂实体要降级成字符串或拍平成多个实体 |
 | 内核审计与核心审计未合并 🔶 | 两套 schema 不同，`bootstrap.ts:95-97` 明确写了这是 P2 |
 | 授予 / 撤销信任的 UI ❌ | 状态机与联动都在，用户点不到 |
@@ -230,7 +245,7 @@ Electron 端只需要换传输层与存储后端。
 | `docs/design/sandbox-sketch.ts` | 🔶 草图，未实现 | 保留，但标注「草图」 |
 | `docs/design/verify-schema.py` | 🔶 脚本本身能跑，但它验证的是 `schema.sql` —— 而那个 schema **没有任何代码在用** | 保留（它是「打算建成什么样」的参考，见 §2.3 的 📌），但标注「未接线」 |
 | `DESIGN.md` §2 仓库结构 | ❌ 描述的是 `src/plugins/builtin/`、`plugins/` 根目录等**不存在的结构** | 按实际树重写 |
-| `packages/plugin-api/README.md` | ✅ **1241 行 / 15 节**，本轮补齐了 10 项（见 §9） | 只剩「能力探测交付通道」一个缺口 —— 已决定短期不做（`dev.md` §3.1），那是改契约不是改文档 |
+| `packages/plugin-api/README.md` | ✅ **1442 行 / 16 节**，本轮新增 §7.9「控件（UI）」整节（含原语表、Action、`ViewContext`、自由度限制、最小示例、自查清单） | 只剩「能力探测交付通道」一个缺口 —— 已决定短期不做（`dev.md` §3.1），那是改契约不是改文档 |
 
 ---
 
@@ -239,15 +254,17 @@ Electron 端只需要换传输层与存储后端。
 | 顺序 | 缺口 | 阻塞什么 | 规模 |
 |---|---|---|---|
 | 1 | ~~能力清单说真话~~ ✅ **已完成** | — | 已完成 |
-| 2 | **§2 数据持久化（薄封装）** | 所有插件的产出都是假的 | 中（~200 行 + 测试） |
+| 2 | ~~§2 数据持久化~~ ✅ **已完成**（T2a–T2c） | — | 已完成 |
 | 3 | ~~第一个插件端到端~~ ✅ **已完成** | 只剩「数据活过刷新」，卡在 2 | 小 |
-| 4 | **§1.3 视图渲染层（最小版）** | 所有 UI 类插件 | 大（布局引擎 + 组件注册表 + iframe 宿主） |
+| 4 | ~~§1.3 视图渲染层~~ ✅ **已完成**（U1–U6） | — | 已完成 |
+| 4b | **§2.2 类型收敛**（`course` 两个形状） | 插件实体进不了「课程」页 | 小（T2d / T2e） |
 | 5 | **签名校验 + `.mtp` 安装** | 第三方插件的一切 | 中大 |
 | 6 | **QuickJS 沙箱** | 第三方代码真正跑起来 | 大（S1–S5 的结论已经铺好路） |
 | 7 | **iOS / Electron** | 原始需求里的多端 | 中大 |
 | 8 | 通知 / 调度 / 鉴权代理 / `db.*` | 连接器类插件 | 大，可并行 |
 
-**2 是现在唯一的头号项** —— 1 和 3 都做完了，而 2 不做的话，第一个插件的产出仍然是假的。
+**现在的头号项是 4b。** 1 / 2 / 3 / 4 都做完了 —— 数据能存、能画成控件，
+但插件实体和「课程」页之间还差一次类型收敛。
 
 ---
 
@@ -260,8 +277,8 @@ Electron 端只需要换传输层与存储后端。
 |---|---|---|---|
 | `app.matrix.importer.ics` | ICS 课表导入 | **无** —— 本地导入链路已通 | ① ✅ **已完成**（`manifest` / `parse-ics` / `index` / `IcsImportView` / 22 项断言，已注册）。唯一残留：数据活不过刷新（§2） |
 | `app.matrix.importer.csv` | 通用 CSV 导入（成绩 / 名单） | 无（换一个解析器，走同一条 `source: 'host'` 路） | ② 几乎零成本，用来证明「本地导入不是只为 ICS 写的」 |
-| `app.matrix.timetable` | 周课表视图 | §1.3 视图渲染层 + §2 持久化 | ③ 视图层的第一个消费者 |
-| `app.matrix.timeline` | 时间轴聚合 | §1.3 + §2 + `bus.read` 读闸 | ③ 与 timetable 共用视图层，一起做才划算 |
+| `app.matrix.timetable` | 周课表视图 | 控件层（✅ U1–U6）+ §2 持久化（✅） | ③ **控件层的第一个真消费者**，现在就能写 |
+| `app.matrix.timeline` | 时间轴聚合 | 控件层（✅）+ `bus.read` 读闸 | ③ 与 timetable 共用控件层，一起做才划算 |
 | `app.matrix.notifier` | 上课提醒 | `notify.local` + `schedule.*` | ④ 会逼出通知与调度两条线 |
 | `app.matrix.connector.ecloud` | 上科大 E云课堂连接器 | `auth.login` + §2 持久化 + `schedule.periodic` | ⑤ **压轴**。它一次性需要三个缺口，不能早做 |
 | `app.matrix.exporter.json` | 全量导出 / 备份 | §2 + 跨插件读 | ⑥ 等数据层稳了才有意义 |
@@ -306,7 +323,7 @@ Electron 端只需要换传输层与存储后端。
 | 7 | `bus.emit` 到底怎么合 | **§7.5**（**按 `id` 覆盖，不是合并**；权限矩阵那四个字是设计意图，以 §7.5 为准） |
 | 8 | `EntitySchema` 运行时行为 | **§7.1** 逐条表（`integer` 拒 `1.5`、`enum` 严格 `===`、`array.items` 递归、`object` 不递归） |
 | 9 | `shared` 投影规则 | **§7.3**（补了「读自己写的不裁」这条边界） |
-| 10 | `syncIntervalMin` 不触发任何东西 | **§3.4** 新表（`commands` / `connectors` / `views` **都没人读**） |
+| 10 | `syncIntervalMin` 不触发任何东西 | **§3.4** 新表（`commands` / `connectors` **都没人读**；`views` 已经有人读了） |
 
 **判断标准**：另一个会话只读这份文档，能不能写出一个能跑的插件。
 现在能了 —— 前提是它接受「只有本地导入 + 网络请求这两条路」。

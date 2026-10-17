@@ -11,8 +11,10 @@ import CoursesView from './views/CoursesView';
 import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
 import DebugPanel from './components/DebugPanel';
+import { LayoutStore } from './ui/layout';
+import { WidgetPage } from './ui/WidgetPage';
 
-type Tab = 'timeline' | 'courses' | 'settings';
+type Tab = 'home' | 'timeline' | 'courses' | 'settings';
 
 type Boot =
   | { status: 'loading' }
@@ -24,7 +26,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [tab, setTab] = useState<Tab>('timeline');
+  const [tab, setTab] = useState<Tab>('home');
   const [debugOpen, setDebugOpen] = useState(false);
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
   const [toast, setToast] = useState<string | null>(null);
@@ -189,6 +191,17 @@ export default function App() {
     [tasks],
   );
 
+  // 布局文档的读写口。用户「这一页摆什么」的真相在 KV 里，不在代码里
+  const layoutStore = useMemo(
+    () => (boot.status === 'ready' ? new LayoutStore(boot.platform.kv) : null),
+    [boot],
+  );
+
+  // 控件里的 `navigate` 动作只能递一个字符串过来，这里把它收窄成合法标签页
+  const goTab = useCallback((to: string) => {
+    setTab(to === 'timeline' || to === 'courses' || to === 'settings' ? to : 'home');
+  }, []);
+
   // ---------------------------------------------------------------- 渲染
 
   if (boot.status === 'loading') {
@@ -250,6 +263,10 @@ export default function App() {
           </div>
         )}
 
+        {tab === 'home' && layoutStore !== null && (
+          <WidgetPage host={p.plugins} layout={layoutStore} onNavigate={goTab} />
+        )}
+
         {tab === 'timeline' && (
           <TimelineView
             tasks={tasks}
@@ -281,6 +298,7 @@ export default function App() {
 
       <div className="tabbar">
         {([
+          ['home', '首页'],
           ['timeline', `时间线${openCount ? ` (${openCount})` : ''}`],
           ['courses', '课程'],
           ['settings', '设置'],

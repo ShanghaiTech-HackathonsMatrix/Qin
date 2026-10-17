@@ -12,6 +12,7 @@
  */
 
 import type { PluginKind } from './manifest.ts';
+import type { ViewRender } from './ui.ts';
 
 // ------------------------------------------------------------ 请求描述
 
@@ -179,8 +180,13 @@ export interface PlanInput {
  * 生命周期钩子也是同步的：宿主负责调度，插件只负责「现在该做什么」。
  */
 export interface PluginExports {
-  /** 声明式视图定义（declarative / ui 形态） */
-  views?: Record<string, unknown>;
+  /**
+   * 视图渲染函数，键是 manifest `contributes.views` 里的 `id`。
+   *
+   * 目录（有哪些视图）在 manifest 里，实现（怎么画）在这里 —— 宿主交叉核对两边。
+   * 每个函数必须**同步且纯**：同样的 `ViewContext` 得到同样的树。
+   */
+  renders?: Readonly<Record<string, ViewRender>>;
 
   /** connector / logic 形态 */
   plan?(input: PlanInput): RequestPlan;

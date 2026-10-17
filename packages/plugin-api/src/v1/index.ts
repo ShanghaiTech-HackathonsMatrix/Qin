@@ -13,4 +13,5 @@ export * from './schema.ts';
 export * from './manifest.ts';
 export * from './permissions.ts';
 export * from './contract.ts';
+export * from './ui.ts';
 export * from './version.ts';

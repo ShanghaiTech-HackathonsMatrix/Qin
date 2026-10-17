@@ -41,6 +41,9 @@ import {
   parsePluginTarget,
   parseRange,
   parseSemver,
+  parseUiNode,
+  parseAction,
+  UI_LIMITS,
   satisfiesRange,
   validateManifest,
   type Manifest,
@@ -1227,6 +1230,168 @@ test('契约类型接受 source / entities（编译期即可见）', () => {
   const plan: RequestPlan = { requests: [req], entities: [], cursor: 'c', summary: 's' };
   assert.equal(plan.requests[0]?.source, 'host');
   assert.equal(plan.entities?.length, 0);
+});
+
+// ================================================================ 11. 控件契约
+
+section('11. 控件契约：UiNode 解析与 views 校验');
+
+test('合法树被重建，且不与输入共享对象', () => {
+  const raw = {
+    type: 'stack',
+    direction: 'column',
+    gap: 'md',
+    children: [
+      { type: 'text', text: '今天', size: 'lg', weight: 'bold' },
+      { type: 'card', title: '课程', children: [{ type: 'badge', text: '3 节', tone: 'accent' }] },
+      { type: 'divider' },
+    ],
+  };
+  const r = parseUiNode(raw);
+  assert.equal(r.ok, true, r.ok ? '' : r.message);
+  if (!r.ok) return;
+
+  assert.deepEqual(r.data, raw, '重建结果必须与输入等价');
+  assert.notEqual(r.data, raw, '不得原样透传同一个对象');
+  const stack = r.data as { children: unknown[] };
+  assert.notEqual(stack.children, raw.children, 'children 数组也必须是新数组');
+});
+
+test('未知原语被拒 —— 原语是封闭集', () => {
+  const r = parseUiNode({ type: 'iframe', src: 'https://evil' });
+  assert.equal(r.ok, false);
+  assert.equal(r.ok ? '' : r.code, 'ESCHEMA');
+  assert.ok(!r.ok && r.message.includes('封闭集'), `错误信息要说清原因，实际：${r.ok ? '' : r.message}`);
+});
+
+test('children 不是数组被拒', () => {
+  const r = parseUiNode({ type: 'stack', children: 'nope' });
+  assert.equal(r.ok, false);
+});
+
+test('节点数超过上限被拒（防止一个循环把界面卡死）', () => {
+  const children = Array.from({ length: UI_LIMITS.maxNodes + 5 }, () => ({ type: 'divider' }));
+  const r = parseUiNode({ type: 'stack', children });
+  assert.equal(r.ok, false);
+  assert.equal(r.ok ? '' : r.code, 'ESCHEMA');
+});
+
+test('嵌套超过上限被拒', () => {
+  let node: unknown = { type: 'divider' };
+  for (let i = 0; i <= UI_LIMITS.maxDepth + 1; i += 1) {
+    node = { type: 'stack', children: [node] };
+  }
+  const r = parseUiNode(node);
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && r.message.includes('层'), `应当报嵌套层数，实际：${r.ok ? '' : r.message}`);
+});
+
+test('文本超长被拒', () => {
+  const r = parseUiNode({ type: 'text', text: 'x'.repeat(UI_LIMITS.maxTextLength + 1) });
+  assert.equal(r.ok, false);
+});
+
+test('未知字段被丢弃 —— 不透传任何插件塞的东西', () => {
+  const raw = {
+    type: 'text',
+    text: 'hi',
+    onClick: () => 1,
+    className: 'evil',
+    style: { color: 'red' },
+    extra: { nested: true },
+  };
+  const r = parseUiNode(raw);
+  assert.equal(r.ok, true, r.ok ? '' : r.message);
+  assert.deepEqual(r.data, { type: 'text', text: 'hi' }, '只允许已知字段到达渲染层');
+});
+
+test('图标只能是枚举名，不能是图片 URL（插件零网络）', () => {
+  const bad = parseUiNode({
+    type: 'button',
+    label: 'x',
+    onPress: { kind: 'navigate', to: 'a' },
+    icon: 'https://evil.example/x.png',
+  });
+  assert.equal(bad.ok, false, 'URL 形式的图标必须被拒');
+
+  const good = parseUiNode({
+    type: 'button',
+    label: 'x',
+    onPress: { kind: 'navigate', to: 'a' },
+    icon: 'calendar',
+  });
+  assert.equal(good.ok, true);
+});
+
+test('Action：三种合法形状都能解析', () => {
+  const nav = parseAction({ kind: 'navigate', to: 'courses' });
+  assert.equal(nav.ok, true);
+  const ui = parseAction({ kind: 'setUi', key: 'filter', value: 'open' });
+  assert.equal(ui.ok, true);
+  const sync = parseAction({ kind: 'sync', settings: { term: '2025-fall' } });
+  assert.equal(sync.ok, true);
+});
+
+test('Action：没有「任意命令」这一档 —— 宿主没有执行入口，不做假开关', () => {
+  const r = parseAction({ kind: 'command', id: 'markDone' });
+  assert.equal(r.ok, false, 'v1 不得接受 command：那会是一个点了没反应的按钮');
+});
+
+test('Action：setUi 的值必须是 JSON 标量', () => {
+  const bad = parseAction({ kind: 'setUi', key: 'k', value: { nested: 1 } });
+  assert.equal(bad.ok, false, '对象值必须被拒 —— UI 状态要可序列化');
+  const nan = parseAction({ kind: 'setUi', key: 'k', value: Number.NaN });
+  assert.equal(nan.ok, false, 'NaN 也要拒（JSON 里表达不了）');
+});
+
+test('Action：未知 kind 被拒', () => {
+  const r = parseAction({ kind: 'runArbitraryCode', code: 'x' });
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && r.message.includes('navigate'), '错误信息要列出合法取值');
+});
+
+test('button 缺 onPress 被拒 —— 不能有点不动的按钮', () => {
+  const r = parseUiNode({ type: 'button', label: 'x' });
+  assert.equal(r.ok, false);
+});
+
+test('manifest.views：合法目录通过', () => {
+  const v = validateManifest(
+    manifestWith({
+      contributes: {
+        views: [
+          { id: 'upcoming', title: '近期', kind: 'widget', requires: ['session'] },
+          { id: 'detail', title: '详情', kind: 'page', defaultSize: { w: 4, h: 2 } },
+        ],
+      },
+    }),
+  );
+  assert.equal(v.ok, true, v.ok ? '' : JSON.stringify(v.issues));
+});
+
+test('manifest.views：重复 id / 非 kebab-case / kind 非法 / 尺寸越界 都被拒', () => {
+  const v = validateManifest(
+    manifestWith({
+      contributes: {
+        views: [
+          { id: 'a', title: 'A', kind: 'widget' },
+          { id: 'a', title: '重复', kind: 'widget' },
+          { id: 'Has Space', title: 'B', kind: 'widget' },
+          { id: 'c', title: 'C', kind: 'popup' },
+          { id: 'd', title: 'D', kind: 'widget', defaultSize: { w: 99, h: 0 } },
+        ],
+      },
+    }),
+  );
+  assert.equal(v.ok, false);
+  const paths = v.issues.map((i) => i.path);
+  assert.ok(paths.includes('contributes.views[1].id'), `应报重复 id，实际：${paths.join(',')}`);
+  assert.ok(paths.includes('contributes.views[2].id'), '应报非 kebab-case');
+  assert.ok(paths.includes('contributes.views[3].kind'), '应报非法 kind');
+  assert.ok(
+    paths.some((p) => p.startsWith('contributes.views[4].defaultSize')),
+    '应报尺寸越界',
+  );
 });
 
 // ---------------------------------------------------------------- 汇总

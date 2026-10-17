@@ -13,6 +13,7 @@
 
 import { fail, ok, type PluginResult } from './errors.ts';
 import { ENTITY_TYPE_RE, FIELD_TYPES, type EntitySchema } from './schema.ts';
+import { validateViewContribution, type ViewContribution } from './ui.ts';
 
 export type PluginKind = 'declarative' | 'logic' | 'connector' | 'ui' | 'first-party';
 
@@ -90,7 +91,14 @@ export interface ManifestContributes {
    * ⚠️ 这个形状是**提案**，未经真实插件检验。
    */
   entityTypes?: ManifestEntityType[];
-  views?: unknown[];
+  /**
+   * 本插件贡献的视图（页面 / 控件）。
+   *
+   * 这里是**目录**：只有 id / title / kind / requires 这些纯数据，可校验、可序列化。
+   * 渲染函数不在这里 —— 它在 `PluginExports.renders` 里，按同一个 id 对应。
+   * 宿主会交叉核对：声明了没有实现、或实现了没有声明，都会报警告。
+   */
+  views?: ViewContribution[];
   commands?: Array<{ id: string; title: string }>;
   connectors?: Array<{ id: string; authProvider?: string; syncIntervalMin?: number }>;
 }
@@ -517,6 +525,19 @@ function validateContributes(raw: unknown, add: (p: string, m: string) => void):
         if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== 'boolean') {
           add(`${at}.schema.additionalProperties`, 'additionalProperties 必须是布尔值');
         }
+      });
+    }
+  }
+
+  // --- views
+  const views = raw.views;
+  if (views !== undefined) {
+    if (!Array.isArray(views)) {
+      add('contributes.views', 'views 必须是数组（每项 { id, title, kind }）');
+    } else {
+      const seen = new Set<string>();
+      views.forEach((v, i) => {
+        validateViewContribution(v, `contributes.views[${i}]`, add, seen);
       });
     }
   }

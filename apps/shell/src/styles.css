@@ -361,3 +361,98 @@ pre.diag {
   cursor: pointer;
 }
 .seg button[data-active='true'] { background: var(--accent); color: #08111f; font-weight: 620; }
+
+/* ---------------------------------------------------------------- 控件原语（UiNode）
+ *
+ * 这里是插件 UI 能拿到的**全部**样式能力。插件给的是语义（tone / gap / size），
+ * 具体数值只在这一个文件里定义 —— 所以「插件 UI 一定长得像 Matrix」不是靠自觉，
+ * 是靠没有别的出口。
+ */
+
+.ui-stack {
+  display: flex;
+  min-width: 0;
+}
+
+.ui-card {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.7);
+  min-width: 0;
+}
+
+.ui-card__title {
+  font-size: var(--fs-sm);
+  font-weight: 620;
+  color: var(--fg-dim);
+  letter-spacing: 0.02em;
+}
+
+.ui-text {
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.ui-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+  min-width: 0;
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) * 0.7);
+  padding: 7px 12px;
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  cursor: pointer;
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.ui-btn:active { background: var(--bg-3); }
+.ui-btn:disabled { opacity: 0.45; cursor: default; }
+
+.ui-badge {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  align-self: flex-start;
+}
+
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap);
+  padding: calc(var(--pad) * 1.4) var(--pad);
+  color: var(--fg-faint);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.ui-empty__text { line-height: 1.5; }
+
+.ui-divider {
+  height: 1px;
+  background: var(--line);
+  margin: calc(var(--gap) * 0.5) 0;
+  flex: 0 0 auto;
+}
+
+.ui-icon { flex: 0 0 auto; }

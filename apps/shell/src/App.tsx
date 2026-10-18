@@ -408,6 +408,17 @@ export default function App() {
     setSettingsJump((n) => n + 1);
     setTab('settings');
   }, []);
+  /*
+    落地页只能用一次，用完就得忘掉。
+
+    SettingsView 只在 tab === 'settings' 时挂载，离开再回来是**重新挂载**，
+    会重新读 initialPage。如果 settingsStart 一直停在 'account'，那用户只要点过
+    一次「去平台连接」，以后每次点设置都会直接掉进「用户与账号」二级页，回不到
+    设置根页 —— 这正是之前那个「一点开设置就进用户与账号」的 bug。
+  */
+  useEffect(() => {
+    if (tab !== 'settings') setSettingsStart('root');
+  }, [tab]);
 
   const updateSettings = useCallback(async (patch: Partial<AppSettings>) => {
     if (!platform) return;

@@ -1,4 +1,4 @@
-import { dayKeyOf, type ScheduleEntry } from '../views/ScheduleView';
+import { dayKeyOf, dayLabelOf, type ScheduleEntry } from '../views/ScheduleView';
 
 const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 /** 一列最多画几道，再多就折成 +n —— 半宽时一列只有十几个像素宽 */
@@ -7,7 +7,11 @@ const MAX_MARKS = 4;
 interface Props {
   entries: readonly ScheduleEntry[];
   now: number;
-  onPickDay?: (dayKey: string) => void;
+  /**
+   * 点某一天。带上日期键和「8月22日 周六」这样的标签：
+   * 日程页要靠键定位到那一段，靠标签在「那天没有安排」时说清楚是哪天。
+   */
+  onPickDay?: (dayKey: string, label: string) => void;
 }
 
 /**
@@ -22,7 +26,7 @@ interface Props {
  *   ▬ 实心矮  已逾期
  *   ▬ 淡     已完成
  *
- * 今天是第 0 列，加下划线强调。点某一天可以跳到日程页。
+ * 今天是第 0 列，加下划线强调。点某一天跳到日程页那一段。
  */
 export default function WeekStrip({ entries, now, onPickDay }: Props) {
   const base = new Date(now);
@@ -33,7 +37,7 @@ export default function WeekStrip({ entries, now, onPickDay }: Props) {
     const items = entries
       .filter((e) => dayKeyOf(e.at) === key)
       .sort((a, b) => a.at - b.at);
-    return { key, name: WEEK_NAMES[new Date(at).getDay()], items, isToday: i === 0 };
+    return { key, name: WEEK_NAMES[new Date(at).getDay()], label: dayLabelOf(at, now).date, items, isToday: i === 0 };
   });
 
   return (
@@ -44,9 +48,9 @@ export default function WeekStrip({ entries, now, onPickDay }: Props) {
           className="week-day"
           key={day.key}
           data-today={day.isToday}
-          onClick={onPickDay ? () => onPickDay(day.key) : undefined}
+          onClick={onPickDay ? () => onPickDay(day.key, day.label) : undefined}
           disabled={onPickDay === undefined}
-          aria-label={`${day.name} · ${day.items.length} 项`}
+          aria-label={`${day.label} · ${day.items.length} 项`}
         >
           <span className="week-day__name">{day.name}</span>
           <span className="week-day__marks">

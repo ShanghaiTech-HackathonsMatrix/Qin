@@ -34,6 +34,9 @@ export interface TimetableLesson {
   end: string;
   /** 「第 3-4 节」/「第 5 节」 */
   periods: string;
+  /** 第几节开始、第几节结束。周课表要靠它把一格跨成好几行 */
+  first: number;
+  last: number;
 }
 
 export interface TimetableDay {
@@ -114,6 +117,8 @@ export function buildWeekDays(opts: {
         start: periods[r.first - 1]?.start ?? '',
         end: periods[r.last - 1]?.end ?? '',
         periods: r.first === r.last ? `第 ${r.first} 节` : `第 ${r.first}-${r.last} 节`,
+        first: r.first,
+        last: r.last,
       }));
 
     days.push({

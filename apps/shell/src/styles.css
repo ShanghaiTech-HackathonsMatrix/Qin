@@ -646,6 +646,49 @@ body, .app { background: #f7f7f3; color: #111; }
   white-space: nowrap;
 }
 
+/* ---------------------------------------------------- 周课表（节次 × 星期） */
+/*
+  和教务系统原页面一个形状：左列节次、上排星期，跨节的课用 rowSpan 占整块。
+  窄屏靠两件事撑住 —— 左列 sticky 不跟着横滑，整表有最小宽度、装不下就横滚。
+*/
+/* .timetable 是 grid 容器，隐式列默认按 max-content 撑开 —— 表格会直接把页面顶宽，
+   而不是在框里横滑。把列锁成 1fr，滚动交给 .tt__scroll。 */
+.timetable { grid-template-columns: minmax(0, 1fr); }
+.tt__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 0; max-width: 100%;
+  border: 1.5px solid #111; border-radius: 10px 8px 11px 9px; background: #fff; }
+.tt__grid { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.tt__grid thead th { background: #111; color: #fff; padding: 5px 2px; text-align: center;
+  font-size: calc(11px * var(--font-base) * var(--font-scale)); line-height: 1.25; font-weight: 700; }
+.tt__grid thead th b { display: block; }
+.tt__grid thead th em { display: block; font-style: normal; font-weight: 400; opacity: .72;
+  font-size: calc(9px * var(--font-base) * var(--font-scale)); }
+.tt__grid thead th[data-today='true'] { background: #fff; color: #111; box-shadow: inset 0 -2.5px 0 #111; }
+.tt__corner { width: 44px; }
+.tt__period { position: sticky; left: 0; z-index: 1; width: 44px; padding: 3px 1px;
+  background: #efefeb; border-right: 1.5px solid #111; border-bottom: 1px solid #dcdcd6;
+  text-align: center; vertical-align: middle; font-weight: 400; }
+.tt__period b { display: block; font-size: calc(11.5px * var(--font-base) * var(--font-scale)); font-weight: 700; }
+.tt__period em { display: block; font-style: normal; color: #8d8d87; line-height: 1.2;
+  font-size: calc(8.5px * var(--font-base) * var(--font-scale)); }
+.tt__cell { height: 32px; padding: 2px; vertical-align: top;
+  border-bottom: 1px solid #dcdcd6; border-right: 1px solid #dcdcd6; }
+.tt__cell[data-today='true'] { background: #f4f4ee; }
+.tt__stack { display: flex; flex-direction: column; gap: 2px; height: 100%; }
+.tt__lesson { flex: 1 1 auto; display: block; width: 100%; box-sizing: border-box; min-height: 28px;
+  padding: 3px 4px; text-align: left; overflow: hidden; cursor: pointer;
+  border: 1.5px solid #111; border-radius: 6px 4px 7px 5px; background: #fff; color: #111; font: inherit; }
+.tt__lesson:active { background: #efefeb; }
+.tt__lesson strong { display: block; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere;
+  font-size: calc(10px * var(--font-base) * var(--font-scale)); }
+.tt__lesson small { display: block; line-height: 1.25; color: #555; overflow-wrap: anywhere;
+  font-size: calc(8.5px * var(--font-base) * var(--font-scale)); }
+/* 折叠项也是 .conn，别让默认三角把图标顶歪，和上面几个平台块对齐 */
+details.conn > summary { list-style: none; cursor: pointer; }
+details.conn > summary::-webkit-details-marker { display: none; }
+details.conn[open] > summary .conn__status { border-color: #111; font-weight: 800; }
+.tt__legend { margin: 0; text-align: right; color: #8d8d87;
+  font-size: calc(10.5px * var(--font-base) * var(--font-scale)); }
+
 .timetable-empty {
   display: grid;
   justify-items: center;
@@ -740,6 +783,15 @@ body, .app { background: #f7f7f3; color: #111; }
   font-size: calc(13px * var(--font-base) * var(--font-scale)); font-weight: 700;
   text-align: right; font-family: inherit; }
 .ddl-detail__rows dd .ddl-detail__inline:focus { outline: none; border-bottom-color: #111; }
+/*
+  课程详情里唯一可编辑的地方：备注。
+  虚线框平时很轻，聚焦才变实线 —— 和上面两处可编辑元素同一套暗示。
+*/
+.ddl-detail__note { display: block; margin: 16px 0 0; font-size: calc(12px * var(--font-base) * var(--font-scale)); color: #555; }
+.ddl-detail__note textarea { display: block; width: 100%; margin-top: 6px; min-height: 84px; padding: 10px 11px;
+  border: 1.5px dashed #b6b6b0; border-radius: 8px; background: #fff; color: #111;
+  font-family: inherit; font-size: calc(14px * var(--font-base) * var(--font-scale)); line-height: 1.7; resize: vertical; }
+.ddl-detail__note textarea:focus { outline: none; border-style: solid; border-color: #111; }
 /* 桌面预览时给弹层一点边距，手机上仍是贴底的抽屉 */
 @media (min-width: 560px) {
   .ddl-detail-backdrop { align-items: center; padding: 24px; }

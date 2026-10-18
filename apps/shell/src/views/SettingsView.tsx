@@ -222,7 +222,11 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
   return (
     <>
       {page==='root'?<div className="settings-menu">{(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}><strong>{names[key]}</strong><span>›</span></button>)}</div>:<button className="btn" onClick={()=>setPage('root')}>‹ 设置 · {names[page]}</button>}
-      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 用邮箱登录，BB 和教务用学校账号。登录信息保存在本机。</p><PlatformConnections academic={platform.academic} simulated={platform.academicSimulated}/><ExternalAccountsView platform={platform}/></div>}
+      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 用邮箱登录，BB 和教务用学校账号。登录信息保存在本机。</p><PlatformConnections academic={platform.academic} simulated={platform.academicSimulated}/>
+        {/* 这两块跟着平台同步走：同步回来的课要落到日程上，靠的就是开学日期和每节课的时间 */}
+        <TimetableSetup academic={platform.academic} />
+        <PeriodSettings academic={platform.academic}/>
+        <ExternalAccountsView platform={platform}/></div>}
       {page==='plugins'&&<>
       <div className="section-title">内置插件</div>
       <div className="conn-grid">
@@ -233,8 +237,6 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
       </>}
       {page==='general'&&<>
       <WidgetSettings platform={platform}/>
-      <TimetableSetup academic={platform.academic} />
-      <PeriodSettings academic={platform.academic}/>
       <ReminderSettings academic={platform.academic}/>
       <div className="section-title">外观</div>
 
@@ -370,7 +372,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
 
 function PeriodSettings({academic:s}:{academic:AcademicService}){
   const [periods,setPeriods]=useState(()=>s.settings.periods.map(p=>({...p}))),[note,setNote]=useState('');
-  return <details className="card stack"><summary>上课时间与课间</summary><p className="faint">调整每节课时间，保存后同步不会覆盖。</p>
+  return <details className="conn"><summary className="conn__head"><span className="conn__mark" aria-hidden="true">节</span><span className="conn__title"><strong>上课时间与课间</strong><small>调整每节课时间，保存后同步不会覆盖</small></span><span className="conn__status" aria-hidden="true">▾</span></summary>
     {periods.map((p,i)=><div className="stack" key={i}><strong>第 {i+1} 节 · {p.group}</strong><label>开始<input className="field" type="time" aria-label={`第${i+1}节开始`} value={p.start} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,start:e.target.value}:p))}/></label><label>结束<input className="field" type="time" aria-label={`第${i+1}节结束`} value={p.end} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,end:e.target.value}:p))}/></label></div>)}
     <button className="btn" disabled={s.busy} onClick={()=>void(async()=>{try{await s.saveSettings({...s.settings,periods});setNote('上课时间已保存');}catch(e){setNote(String(e));}})()}>保存上课时间</button>{note&&<p role="status">{note}</p>}
   </details>;

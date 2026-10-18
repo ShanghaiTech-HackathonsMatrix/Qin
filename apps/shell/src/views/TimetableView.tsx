@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 
-import type { TimetableDay } from '../app/timetable.ts';
+import type { PeriodSlot, TimetableDay } from '../app/timetable.ts';
 
 interface Props {
   days: readonly TimetableDay[];
+  /** 每节课的起止时间，表格最左那一列 */
+  periods: readonly PeriodSlot[];
   week: number;
   totalWeeks: number;
   /** 相对当前周的偏移，用来在标题下面写「本周 / 下一周」这类提示 */
@@ -15,16 +17,23 @@ interface Props {
 }
 
 /**
- * 周课表。
+ * 周课表 —— 「节次 × 星期」的表格，和教务系统原页面一个形状。
  *
- * 为什么不做成「时间 × 星期」的网格：手机竖屏就 390px 宽，摊成七列之后
- * 每格不到 50px，课名只能挤成一两个字。这一页回答的是「这周哪天有课、
- * 几点、在哪」，所以按天竖排成卡片，和其它页的卡片是同一套观感。
+ * 之前这里是按天竖排的卡片，理由是手机竖屏 390px 摊成七列每格不到 50px。
+ * 但那个理由只对了一半：表格才是大家看课表的方式 —— 一眼能看出「周三上午
+ * 三四节是什么、和周二那门课时间冲不冲」，竖排卡片得上下翻着比对。
+ *
+ * 所以现在摊成表格，用两个办法解决窄屏：
+ * 1. 最左那一列「节次」`position: sticky`，左右滑动时它不动，永远知道这是第几节；
+ * 2. 整张表有个最小宽度，装不下就横向滚动，而不是把课名压成一两个字。
+ *
+ * 跨节的课（第 3-4 节）用 `rowSpan` 占两行，和教务系统一样是一整块。
  */
-export default function TimetableView({ days, week, totalWeeks, weekOffset, onWeekChange, emptyText,onOpenLesson }: Props) {
+export default function TimetableView({ days, periods, week, totalWeeks, weekOffset, onWeekChange, emptyText, onOpenLesson }: Props) {
   const total = useMemo(() => days.reduce((n, d) => n + d.lessons.length, 0), [days]);
   const canPrev = week > 1;
   const canNext = week < totalWeeks;
+  const rows = Math.max(periods.length, 1);
 
   return (
     <div className="timetable">
@@ -63,36 +72,70 @@ export default function TimetableView({ days, week, totalWeeks, weekOffset, onWe
           <p>{emptyText}</p>
         </div>
       ) : (
-        days.map((day) => (
-          <section className="timetable-day" key={day.weekday} data-today={day.isToday} data-empty={day.lessons.length === 0}>
-            <div className="timetable-day__head">
-              <h3>{day.label}</h3>
-              <span className="timetable-day__date">{day.date}</span>
-              {day.isToday && <span className="timetable-day__today">今天</span>}
-              <span className="timetable-day__count">{day.lessons.length === 0 ? '无课' : `${day.lessons.length} 节`}</span>
-            </div>
-
-            {day.lessons.length > 0 && (
-              <div className="timetable-day__rows">
-                {day.lessons.map((lesson) => (
-                  <div className="timetable-lesson" key={lesson.id} role="button" tabIndex={0} onClick={()=>onOpenLesson?.(lesson.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenLesson?.(lesson.id);}}}>
-                    <span className="timetable-lesson__time">
-                      <b>{lesson.start}</b>
-                      <em>{lesson.end}</em>
-                    </span>
-                    <span className="timetable-lesson__body">
-                      <strong>{lesson.title}</strong>
-                      <small>
-                        {[lesson.location, lesson.teacher].filter((v) => v !== '').join(' · ')}
-                      </small>
-                    </span>
-                    <span className="timetable-lesson__periods">{lesson.periods}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        ))
+        <>
+          <div className="tt__scroll">
+            <table className="tt__grid" style={{ minWidth: `${44 + days.length * 62}px` }}>
+              <thead>
+                <tr>
+                  <th className="tt__corner" scope="col">
+                    节次
+                  </th>
+                  {days.map((day) => (
+                    <th key={day.weekday} scope="col" data-today={day.isToday}>
+                      <b>{day.label}</b>
+                      <em>{day.date}</em>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: rows }, (_, i) => i + 1).map((p) => {
+                  const slot = periods[p - 1];
+                  return (
+                    <tr key={p}>
+                      <th className="tt__period" scope="row">
+                        <b>{p}</b>
+                        <em>
+                          {slot?.start ?? ''}
+                          <br />
+                          {slot?.end ?? ''}
+                        </em>
+                      </th>
+                      {days.map((day) => {
+                        // 上一行的 rowSpan 已经盖到这里了，这一格不能再输出，否则表格会错位
+                        if (day.lessons.some((l) => l.first < p && p <= l.last)) return null;
+                        const starting = day.lessons.filter((l) => l.first === p);
+                        if (starting.length === 0) {
+                          return <td key={day.weekday} className="tt__cell" data-today={day.isToday} />;
+                        }
+                        const span = starting.reduce((m, l) => Math.max(m, Math.min(l.last, rows) - l.first + 1), 1);
+                        return (
+                          <td key={day.weekday} className="tt__cell" data-today={day.isToday} rowSpan={span}>
+                            <div className="tt__stack">
+                              {starting.map((lesson) => (
+                                <button
+                                  key={lesson.id}
+                                  type="button"
+                                  className="tt__lesson"
+                                  onClick={() => onOpenLesson?.(lesson.id)}
+                                >
+                                  <strong>{lesson.title}</strong>
+                                  {lesson.location !== '' && <small>{lesson.location}</small>}
+                                  {lesson.teacher !== '' && <small>{lesson.teacher}</small>}
+                                </button>
+                              ))}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="tt__legend">点课程看详情 · 左右滑动看全周</p>
+        </>
       )}
     </div>
   );

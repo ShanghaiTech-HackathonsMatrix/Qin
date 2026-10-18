@@ -685,7 +685,7 @@ export default function App() {
     const settings = platform.academic.settings;
     const rules = academicSnapshots.flatMap((snap) => snap.rules ?? []);
     const current = teachingWeek(settings.weekOne, nowMs);
-    if (current === null) return { week: 0, totalWeeks: settings.totalWeeks, days: [], synced: rules.length > 0 };
+    if (current === null) return { week: 0, totalWeeks: settings.totalWeeks, days: [], synced: rules.length > 0, periods: settings.periods };
     // 夹在学期内：翻过头就停在第一周/最后一周，而不是给一片空白
     const week = Math.min(Math.max(1, current + weekOffset), Math.max(1, settings.totalWeeks));
     const days = buildWeekDays({
@@ -696,7 +696,7 @@ export default function App() {
       now: nowMs,
       showWeekend: settings.showWeekend,
     });
-    return { week, totalWeeks: settings.totalWeeks, days, synced: rules.length > 0 };
+    return { week, totalWeeks: settings.totalWeeks, days, synced: rules.length > 0, periods: settings.periods };
   }, [platform, academicSnapshots, academicTick, nowMs, weekOffset]);
 
   /** 从三个学习平台拉回来的作业，形状和本机任务完全一样 */
@@ -1478,12 +1478,13 @@ const TAB_ICONS = {
               <div className="home-empty">课表还没就绪。</div>
             ) : timetable.week === 0 ? (
               <div className="home-empty">
-                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 通用设置 → 课表基准」填一下第 1 教学周的周一。
+                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 用户与账号 → 课表基准」填一下第 1 教学周的周一。
               </div>
             ) : (
               <TimetableView
                 onOpenLesson={setLessonId}
                 days={timetable.days}
+          periods={timetable.periods}
                 week={timetable.week}
                 totalWeeks={timetable.totalWeeks}
                 weekOffset={weekOffset}

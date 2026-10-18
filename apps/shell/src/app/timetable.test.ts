@@ -86,6 +86,9 @@ test('只排这一周生效的课，节次换算成时间', () => {
   assert.equal(tue.lessons[0].title, '概率论');
   assert.equal(tue.lessons[0].start, '10:15');
   assert.equal(tue.lessons[0].end, '11:55');
+  // 周课表要靠 first/last 把一格跨成好几行，少了这两个字段表格就画不对
+  assert.equal(tue.lessons[0].first, 3);
+  assert.equal(tue.lessons[0].last, 4);
   assert.equal(tue.lessons[0].periods, '第 3-4 节');
 });
 

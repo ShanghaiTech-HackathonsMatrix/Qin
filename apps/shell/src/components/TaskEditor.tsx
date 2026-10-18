@@ -1,15 +1,16 @@
-import { useState } from 'react';
-import type { Course, EventKind, Task, TaskStatus } from '../domain/types';
+import { useMemo, useState } from 'react';
+import type { EventKind, Task, TaskStatus } from '../domain/types';
+import { groupCourseOptions, type CourseOption } from '../app/course-options';
 import { EVENT_KIND_LABEL, STATUS_LABEL } from '../domain/types';
 import { fromLocalInput, toLocalInput, uid } from '../app/format';
 
 interface Props {
   task: Task | null;
-  courses: Course[];
+  courses: readonly CourseOption[];
   onClose: () => void;
   onSave: (t: Task) => void;
   onDelete: (id: string) => void;
-  onNewCourse: (name: string) => Promise<Course>;
+  onNewCourse: (name: string) => Promise<{ id: string; name: string }>;
 }
 
 export default function TaskEditor({ task, courses, onClose, onSave, onDelete, onNewCourse }: Props) {
@@ -20,6 +21,12 @@ export default function TaskEditor({ task, courses, onClose, onSave, onDelete, o
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'open');
   const [note, setNote] = useState(task?.note ?? '');
   const [busy, setBusy] = useState(false);
+
+  /**
+   * 按来源分组。同步回来的课可能几十门，一股脑塞进一个平铺列表里，
+   * 用户根本分不清哪门是本机建的、哪门是教务同步的。
+   */
+  const groups = useMemo(() => groupCourseOptions(courses), [courses]);
 
   const submit = () => {
     const t = title.trim();
@@ -91,10 +98,23 @@ export default function TaskEditor({ task, courses, onClose, onSave, onDelete, o
                 onChange={(e) => setCourseId(e.target.value)}
               >
                 <option value="">（无）</option>
-                {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {groups.map(([label, items]) => (
+                  <optgroup key={label} label={label}>
+                    {items.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code ? `${c.name} · ${c.code}` : c.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
               <button className="btn" onClick={() => void addCourse()} disabled={busy}>＋课程</button>
             </div>
+            {courses.length === 0 && (
+              <p className="tiny" style={{ marginTop: 6 }}>
+                还没有可选的课程。去「设置 → 平台连接」登录教务课表并同步，课会自动出现在这里。
+              </p>
+            )}
           </div>
 
           <div>

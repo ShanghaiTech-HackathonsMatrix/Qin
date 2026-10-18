@@ -17,6 +17,7 @@ void TimelineViewPlaceholder;
 import CoursesView from './views/CoursesView';
 import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
+import { mergeCourseOptions, type CourseOption } from './app/course-options';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
 import TimetableView from './views/TimetableView';
@@ -652,6 +653,21 @@ export default function App() {
     () => (platform === null ? [] : platform.academic.snapshots.filter(s=>platform.academic.enabled[s.provider]!==false).map(s=>currentTermSnapshot(s,nowMs))),
     [platform, academicTick, nowMs],
   );
+  /**
+   * 「所属课程」下拉栏的候选。
+   *
+   * 原来这里只喂 `courses` —— `TaskStore` 里**用户自己建**的课。教务课表、
+   * 互动教学平台、Gradescope 同步回来的课只活在各自的快照里，一门都不在
+   * 这个列表里，于是下拉栏看着能点、实际只有「（无）」一项。用户说的
+   * 「所属课程下拉栏无法选择」就是这个。
+   *
+   * 现在把三个平台的快照合进来，按 id 去重。本机课程排前面并且优先 ——
+   * 用户在「课程」页改过的名字不该被下次同步覆盖回去。
+   */
+  const courseOptions = useMemo<CourseOption[]>(
+    () => mergeCourseOptions(visibleCourses, academicSnapshots),
+    [visibleCourses, academicSnapshots],
+  );
   /** 有没有同步到真数据。有的话演示用的虚构样本让位 —— 两套并存只会互相打架 */
   const hasAcademic = academicSnapshots.length > 0;
 
@@ -705,7 +721,8 @@ export default function App() {
       : ddlsFromTasks(visibleTasks);
     return [...platformItems, ...local];
   }, [visibleTasks, demoExtraTasks, platformItems, hasAcademic]);
-  const courseFor = useCallback((courseId: string) => visibleCourses.find((course) => course.id === courseId)?.name ?? '个人任务', [visibleCourses]);
+  // 从合并后的候选里查 —— 否则手动任务挂到教务课上，界面上会显示成「个人任务」
+  const courseFor = useCallback((courseId: string) => courseOptions.find((course) => course.id === courseId)?.name ?? '个人任务', [courseOptions]);
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
   /**
    * 一行右侧那个小字：已提交 / 已完成 / 已逾期 / 哪天。
@@ -1670,7 +1687,7 @@ const TAB_ICONS = {
       {editor.open && (
         <TaskEditor
           task={editor.task}
-          courses={courses}
+          courses={courseOptions}
           onClose={() => setEditor({ open: false, task: null })}
           onSave={(t) => void saveTask(t)}
           onDelete={(id) => void deleteTask(id)}

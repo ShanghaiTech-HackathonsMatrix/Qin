@@ -2,6 +2,7 @@ import {confirmAction} from '../components/ConfirmDialog';
 import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform/bootstrap';
 import type { AcademicService } from '../core/academic-service.ts';
+import { PROVIDER_LABEL } from '../app/ddl-items';
 import ExternalPluginsView from './ExternalPluginsView';
 import ExternalAccountsView from './ExternalAccountsView';
 import WidgetSettings from './WidgetSettings';
@@ -34,9 +35,9 @@ const APP_VERSION = '0.2.0-dev';
  * 那时按钮可用，但界面上会写明「模拟」。
  */
 const PROVIDERS_UI = [
-  { id: 'gradescope', name: 'Gradescope', mark: 'G', hint: '作业与截止时间' },
-  { id: 'blackboard', name: '互动教学平台', mark: '教', hint: '课程与作业' },
-  { id: 'eams', name: '教务课表', mark: '课', hint: '课表与节次' },
+  { id: 'gradescope', name: PROVIDER_LABEL.gradescope, mark: 'G', hint: '作业与截止时间' },
+  { id: 'blackboard', name: PROVIDER_LABEL.blackboard, mark: '教', hint: '课程与作业' },
+  { id: 'eams', name: PROVIDER_LABEL.eams, mark: '课', hint: '课表与节次' },
 ] as const;
 
 type ProviderId = (typeof PROVIDERS_UI)[number]['id'];
@@ -66,12 +67,12 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
     <>
       {!academic.available && (
         <p className="conn__note" data-tone="info">
-          网页端登录不了学校平台。真机上点「登录」会打开对应站点，登录完成后回到这里点「同步」。
+          网页登录暂不支持，请在手机应用中登录并同步。
         </p>
       )}
       {simulated && (
         <p className="conn__note" data-tone="info">
-          模拟模式：同步不会联网，用的是内置样本页面走真实解析器。数据是合成的。
+          模拟模式：使用示例数据，不会联网。
         </p>
       )}
 
@@ -221,13 +222,13 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
   return (
     <>
       {page==='root'?<div className="settings-menu">{(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}><strong>{names[key]}</strong><span>›</span></button>)}</div>:<button className="btn" onClick={()=>setPage('root')}>‹ 设置 · {names[page]}</button>}
-      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 使用邮箱登录；BB 与教务使用学校统一身份认证。登录凭证保留在手机本机。</p><PlatformConnections academic={platform.academic} simulated={platform.academicSimulated}/><ExternalAccountsView platform={platform}/></div>}
+      {page==='account'&&<div className="card stack"><h3>用户与账号</h3><p>Gradescope 用邮箱登录，BB 和教务用学校账号。登录信息保存在本机。</p><PlatformConnections academic={platform.academic} simulated={platform.academicSimulated}/><ExternalAccountsView platform={platform}/></div>}
       {page==='plugins'&&<>
       <div className="section-title">内置插件</div>
       <div className="conn-grid">
         <PlatformConnections academic={platform.academic} simulated={platform.academicSimulated} />
       </div>
-      <details className="card"><summary>系统内置组件（随应用更新）</summary><p>ICS 导入 · Timeline 时间线 · 课表与作业投影。这些组件由应用管理。</p></details>
+      <details className="card"><summary>系统内置组件</summary><p>课表、作业和 ICS 导入由应用内置。</p></details>
       <ExternalPluginsView platform={platform} onNavigate={onNavigate} onAddHome={onAddHome}/>
       </>}
       {page==='general'&&<>
@@ -269,7 +270,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
             <span className="slider__value">{Math.round(settings.fontScale * 100)}%</span>
           </div>
           <div className="faint" style={{ marginTop: 6 }}>
-            只放大正文与截止时间，不放大图标和间距。调到 100% 是设计稿原尺寸。
+            只放大正文和截止时间。100% 为默认大小。
           </div>
         </div>
 
@@ -283,7 +284,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
             ))}
           </div>
           <div className="faint" style={{ marginTop: 6 }}>
-            「列表」用发丝线分行，一屏能看更多；「卡片」每项独立成卡。影响任务页与各类列表。
+            列表更紧凑，卡片更清晰。适用于任务页和其他列表。
           </div>
         </div>
       </div>
@@ -359,7 +360,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
           <span className="mono truncate" style={{ maxWidth: '60%' }}>{platform.report.fingerprint}</span>
         </div>
         <div className="faint">
-          内置平台插件使用原有执行方式，外部插件在独立沙箱内运行。数据保存在本机。
+          外部插件独立运行，数据保存在本机。
         </div>
       </div>
       </>}
@@ -369,7 +370,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
 
 function PeriodSettings({academic:s}:{academic:AcademicService}){
   const [periods,setPeriods]=useState(()=>s.settings.periods.map(p=>({...p}))),[note,setNote]=useState('');
-  return <details className="card stack"><summary>上课时间与课间</summary><p className="faint">逐节调整开始与结束时间，节间空隙即课间。同步不会覆盖这些设置。</p>
+  return <details className="card stack"><summary>上课时间与课间</summary><p className="faint">调整每节课时间，保存后同步不会覆盖。</p>
     {periods.map((p,i)=><div className="stack" key={i}><strong>第 {i+1} 节 · {p.group}</strong><label>开始<input className="field" type="time" aria-label={`第${i+1}节开始`} value={p.start} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,start:e.target.value}:p))}/></label><label>结束<input className="field" type="time" aria-label={`第${i+1}节结束`} value={p.end} onChange={e=>setPeriods(rows=>rows.map((p,j)=>i===j?{...p,end:e.target.value}:p))}/></label></div>)}
     <button className="btn" disabled={s.busy} onClick={()=>void(async()=>{try{await s.saveSettings({...s.settings,periods});setNote('上课时间已保存');}catch(e){setNote(String(e));}})()}>保存上课时间</button>{note&&<p role="status">{note}</p>}
   </details>;

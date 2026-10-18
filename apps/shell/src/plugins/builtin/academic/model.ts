@@ -1,6 +1,7 @@
 /** 学业插件共享的纯数据与计算；时间由宿主传入，不读时钟、不做 IO。 */
 export type Provider = 'gradescope' | 'blackboard' | 'eams';
 export const PROVIDERS: Provider[] = ['gradescope', 'blackboard', 'eams'];
+
 export const PLUGIN_IDS: Record<Provider, string> = {
   gradescope: 'app.matrix.connector.gradescope', blackboard: 'app.matrix.connector.blackboard', eams: 'app.matrix.connector.eams',
 };

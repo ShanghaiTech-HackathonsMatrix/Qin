@@ -1186,6 +1186,35 @@ button.log-row:active { background: #f0f0ec; }
 .log-row[data-overdue='true'] .log-row__body small { color: #8d8d87; }
 .log-row[data-overdue='true'] .log-row__due em { color: #5f5f5a; font-weight: 600; }
 
+/* ------------------------------------------- 未连接平台时的提示块与出口按钮 */
+/*
+  首页 DDL、任务日志、日程、课表在没同步时都要说明「为什么空」并给一个出口。
+  之前各处只留一句灰字，用户看完不知道该点哪 —— 登录入口在「设置 → 用户与账号」
+  里，要穿三层。这里统一成一块：手绘虚线框 + 同步图标 + 一句实话 + 黑色胶囊按钮。
+
+  虚线框沿用空态家族的观感（1.5px 虚线、四角半径各不相同、和全站卡片同源），
+  图标用底栏那套 24 网格纯描边画法，不上色块。
+*/
+.sync-prompt { display: grid; justify-items: center; gap: 11px; padding: 22px 18px 18px;
+  text-align: center; background: #fdfdfb;
+  border: 1.5px dashed #b4b4ae; border-radius: 9px 11px 8px 10px; }
+.sync-prompt__mark { width: 40px; height: 40px; display: grid; place-items: center; color: #8d8d87;
+  border: 1.5px dashed #c8c8c2; border-radius: 52% 48% 46% 54% / 48% 52% 48% 52%; }
+.sync-prompt__mark svg { width: 21px; height: 21px; display: block; }
+.sync-prompt__text strong { display: block; color: #111;
+  font-size: calc(15px * var(--font-base) * var(--font-scale)); line-height: 1.4; }
+.sync-prompt__text small { display: block; margin-top: 5px; color: #8d8d87; line-height: 1.65;
+  font-size: calc(11.5px * var(--font-base) * var(--font-scale)); }
+/* 出口按钮：黑胶囊。首页空态、日程空态、课表空态共用同一枚，位置不同但不各画一套 */
+.go-pill { display: inline-flex; align-items: center; gap: 7px; padding: 9px 17px;
+  background: #111; color: #fff; border: 1.5px solid #111; border-radius: 999px;
+  font: inherit; font-size: calc(13px * var(--font-base) * var(--font-scale)); font-weight: 620;
+  cursor: pointer; }
+.go-pill:active { background: #3a3a36; }
+.go-pill span { color: #b9b9b3; line-height: 1; }
+/* 日程 / 课表的空态本来就是虚线框，按钮跟在说明下面，别贴着边 */
+.schedule-empty .go-pill, .timetable-empty .go-pill { margin-top: 4px; }
+
 /* ------------------------------------------------------ 列表 / 卡片 两种排布 */
 /*
   `settings.layout` 之前是个空开关：设置页读写它，但没有任何地方消费 ——

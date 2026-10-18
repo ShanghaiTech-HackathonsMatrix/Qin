@@ -56,6 +56,20 @@ export function splitSyncErrors(errors: readonly string[]): SyncErrorSplit {
  * 用户看到的最后一句话往往就是这个函数的结果 —— 所以它必须说清楚
  * **下一步该干什么**，而不是把 `EREDIRECT` 这种内部码原样甩出去。
  */
+/**
+ * 「同步」失败后该不该自动改走深度扫描。
+ *
+ * 互动教学平台的快路走页面上那个「待完成作业」模块。有些学期/有些账号上这个
+ * 模块根本不在，快路只能失败 —— 以前这是单独的「扫描课程目录」按钮，让用户
+ * 自己判断该点哪个。合并成一个「同步」之后，判断交回给代码：只有确实是
+ * 「待完成作业模块读不到」才改走逐门课扫描，其它错误照常抛出，不掩盖。
+ *
+ * 抽成纯函数是为了能测 —— 这条补救路径在真实站点上很难复现。
+ */
+export function needsDeepScan(provider: string, message: string): boolean {
+  return provider === 'blackboard' && message.includes('待完成作业模块');
+}
+
 export function explainSyncError(raw: string): string {
   if (/EREDIRECT/i.test(raw)) return `${raw}\n（平台把请求转去了登录页，多半是登录已过期 —— 重新点「登录」走一遍再同步）`;
   if (/LOGIN_REQUIRED/i.test(raw)) return '登录已过期，请重新登录';

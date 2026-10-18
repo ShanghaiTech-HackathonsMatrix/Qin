@@ -85,7 +85,8 @@ export function createConnector(provider: Provider): PluginExports {
         if (courses.length>60) throw new Error('课程超过 60 门，请选择需要同步的课程');
         if(provider==='blackboard' && settings.scanMode!=='deep' && courses.length) {
           const pending=blackboardPending(input.body,input.baseUrl,blackboardCourses(input.body,input.baseUrl));
-          if(!pending) throw new Error('未识别 BB 待完成作业模块，已保留历史数据；可使用「扫描课程目录」补充读取');
+          // 不再提「扫描课程目录」按钮 —— 它已合并进「同步」，宿主机在失败时会自动改走深度扫描
+    if(!pending) throw new Error('未识别 BB 待完成作业模块，已保留历史数据');
           snapshot.mode='pending';
           const listed=new Set<string>();
           const active=new Set(courses.map(c=>c.id));

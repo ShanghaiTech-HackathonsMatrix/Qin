@@ -105,6 +105,8 @@ interface Props {
   days: readonly ScheduleDay[];
   /** 空日程时的说明；不同来源的空状态理由不一样，不能写死 */
   emptyText: string;
+  /** 空态里的行动按钮：没连平台时给一个直接去登录的出口 */
+  emptyAction?: { label: string; onClick: () => void };
   onOpenEntry?: (entry: ScheduleEntry) => void;
 }
 
@@ -116,7 +118,7 @@ interface Props {
  * 但**没有**照搬它的事件筛选器与查询层：Qin 这一版的数据来自
  * 核心任务 + 插件槽，不是 `timeline.list` 那个查询端口。
  */
-export default function ScheduleView({ days, emptyText, onOpenEntry }: Props) {
+export default function ScheduleView({ days, emptyText, emptyAction, onOpenEntry }: Props) {
   const total = useMemo(() => days.reduce((n, d) => n + d.items.length, 0), [days]);
 
   if (total === 0) {
@@ -126,6 +128,12 @@ export default function ScheduleView({ days, emptyText, onOpenEntry }: Props) {
           <span aria-hidden="true">☰</span>
           <strong>这段时间没有安排</strong>
           <p>{emptyText}</p>
+          {emptyAction && (
+            <button type="button" className="go-pill" onClick={emptyAction.onClick}>
+              {emptyAction.label}
+              <span aria-hidden="true">›</span>
+            </button>
+          )}
         </div>
       </div>
     );

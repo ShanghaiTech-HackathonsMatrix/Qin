@@ -13,6 +13,8 @@ interface Props {
   onWeekChange: (offset: number) => void;
   /** 一条课时都没有时的说明。没同步和同步了但这周没课，理由不一样 */
   emptyText: string;
+  /** 空态里的行动按钮：没连平台时给一个直接去登录的出口 */
+  emptyAction?: { label: string; onClick: () => void };
   onOpenLesson?:(id:string)=>void;
 }
 
@@ -29,7 +31,7 @@ interface Props {
  *
  * 跨节的课（第 3-4 节）用 `rowSpan` 占两行，和教务系统一样是一整块。
  */
-export default function TimetableView({ days, periods, week, totalWeeks, weekOffset, onWeekChange, emptyText, onOpenLesson }: Props) {
+export default function TimetableView({ days, periods, week, totalWeeks, weekOffset, onWeekChange, emptyText, emptyAction, onOpenLesson }: Props) {
   const total = useMemo(() => days.reduce((n, d) => n + d.lessons.length, 0), [days]);
   const canPrev = week > 1;
   const canNext = week < totalWeeks;
@@ -70,6 +72,12 @@ export default function TimetableView({ days, periods, week, totalWeeks, weekOff
           <span aria-hidden="true">☰</span>
           <strong>这周没有课</strong>
           <p>{emptyText}</p>
+          {emptyAction && (
+            <button type="button" className="go-pill" onClick={emptyAction.onClick}>
+              {emptyAction.label}
+              <span aria-hidden="true">›</span>
+            </button>
+          )}
         </div>
       ) : (
         <>

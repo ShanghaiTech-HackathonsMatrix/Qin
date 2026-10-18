@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform/bootstrap';
 import type { AcademicService } from '../core/academic-service.ts';
 import { PROVIDER_LABEL } from '../app/ddl-items';
+import { needsDeepScan } from '../core/sync-errors.ts';
 import ExternalPluginsView from './ExternalPluginsView';
 import ExternalAccountsView from './ExternalAccountsView';
 import WidgetSettings from './WidgetSettings';
@@ -26,8 +27,18 @@ import {
  * 换句话说：标题在外、卡片在中、条目在内。三层各自只干一件事。
  */
 
+export type SettingsPage = 'root' | 'account' | 'general' | 'plugins' | 'runtime';
+
 interface Props {
   platform: Platform;
+  /**
+   * 从空态直接跳进来时要落在哪一页。
+   *
+   * 登录入口在「设置 → 用户与账号」里，让用户在首页看到一个空板块、再自己
+   * 找到设置、再点进二级页，等于把该做的事藏了三层。调用方用 `key` 重新挂载
+   * 这个组件，`initialPage` 就会生效。
+   */
+  initialPage?: SettingsPage;
   settings: AppSettings;
   onChange: (patch: Partial<AppSettings>) => void;
   onOpenDebug: () => void;
@@ -75,6 +86,25 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
   };
 
   const busy = academic.busy;
+
+  /**
+   * 同步。
+   *
+   * 互动教学平台原来有两个按钮：「同步」走页面上那个「待完成作业」模块（快），
+   * 「扫描课程目录」逐门课翻作业列表（慢，但模块读不到时是唯一的路）。用户不
+   * 知道该点哪个，而后者本来就是前者失败后的补救 —— 于是合成一个：先走快路，
+   * 只有报「未识别 BB 待完成作业模块」时才自动改走深度扫描。
+   */
+  const runSync = async (id: ProviderId) => {
+    try {
+      await academic.sync(id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (!needsDeepScan(id, message)) throw e;
+      setNote({ tone: 'info', text: '待完成作业模块读不到，改为逐门课扫描，会慢一些…' });
+      await academic.sync('blackboard', true);
+    }
+  };
 
   return (
     <div className="stack">
@@ -132,12 +162,11 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
               <button
                 className="btn btn--sm"
                 disabled={busy || !academic.available || academic.enabled[item.id]===false}
-                onClick={() => void run(() => academic.sync(item.id as ProviderId), '同步完成')}
+                onClick={() => void run(() => runSync(item.id as ProviderId), '同步完成')}
               >
                 {busy ? '处理中…' : '同步'}
               </button>
               <button className="btn btn--sm" disabled={busy} onClick={()=>void run(()=>academic.setEnabled(item.id,academic.enabled[item.id]===false))}>{academic.enabled[item.id]===false?'启用':'停用'}</button>
-              {item.id==='blackboard'&&<button className="btn btn--sm" disabled={busy||!academic.available||academic.enabled.blackboard===false} onClick={()=>void run(()=>academic.sync('blackboard',true),'目录扫描完成')}>扫描课程目录</button>}
             </div>
             {item.id==='blackboard'&&snapshot&&<details><summary>打开 BB 课程网页</summary>{snapshot.courses.map(c=><p key={c.id}><button className="btn btn--sm" onClick={()=>void run(()=>openExternal(c.url))}>{c.title}</button></p>)}</details>}
           </div>
@@ -309,8 +338,8 @@ const SETTINGS_ICONS = {
   ),
 } as const;
 
-export default function SettingsView({ platform, settings, onChange, onOpenDebug, onResetData,onNavigate,onAddHome }: Props) {
-  const [page,setPage]=useState<'root'|'account'|'general'|'plugins'|'runtime'>('root');
+export default function SettingsView({ platform, initialPage, settings, onChange, onOpenDebug, onResetData,onNavigate,onAddHome }: Props) {
+  const [page,setPage]=useState<SettingsPage>(initialPage ?? 'root');
   const names={account:'用户与账号',general:'通用设置',plugins:'插件管理',runtime:'运行与关于'};
   const taps = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
   const [diag, setDiag] = useState<Record<string, string> | null>(null);

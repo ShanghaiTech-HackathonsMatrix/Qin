@@ -15,9 +15,10 @@ import TimelineViewPlaceholder from './views/TimelineView';
 // 保留导入只为让文件继续参与类型检查 —— 里面的分组逻辑将来可能被文档归并。
 void TimelineViewPlaceholder;
 import CoursesView from './views/CoursesView';
-import SettingsView from './views/SettingsView';
+import SettingsView, { type SettingsPage } from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
 import CloseButton from './components/CloseButton';
+import SyncPrompt from './components/SyncPrompt';
 import { mergeCourseOptions, type CourseOption } from './app/course-options';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
@@ -387,6 +388,19 @@ export default function App() {
     try { await platform.store.deleteCourse(id); await reload(); }
     catch(e) { flash(`删除失败：${e instanceof Error?e.message:String(e)}`); }
   }, [platform, reload, flash]);
+
+  /*
+    空态里的「去平台连接」按钮要直接落到「设置 → 用户与账号」。
+    设置页的二级页状态本来在它自己身上，这里用「指定落地页 + 换 key 重挂载」
+    推它一把 —— 比把整个 page 状态提升上来改动小得多，也不会打乱它内部的返回逻辑。
+  */
+  const [settingsStart, setSettingsStart] = useState<SettingsPage>('root');
+  const [settingsJump, setSettingsJump] = useState(0);
+  const openPlatformSettings = useCallback(() => {
+    setSettingsStart('account');
+    setSettingsJump((n) => n + 1);
+    setTab('settings');
+  }, []);
 
   const updateSettings = useCallback(async (patch: Partial<AppSettings>) => {
     if (!platform) return;
@@ -1235,6 +1249,17 @@ const TAB_ICONS = {
               <span className="quest-section__ornament">{urgentDdls.length} 条</span>
             </div>
             <div className="ddl-list">
+              {urgentDdls.length === 0 && (
+                hasAcademic ? (
+                  <div className="home-empty">最近没有要交的东西。平台上有新作业同步过来时会出现在这里。</div>
+                ) : (
+                  <SyncPrompt
+                    title="暂无可显示的 DDL"
+                    hint="登录 Gradescope 或互动教学平台后，作业会按截止时间自动排到这里。"
+                    onOpen={openPlatformSettings}
+                  />
+                )
+              )}
               {urgentDdls.slice(0, size === 'half' ? 2 : urgentDdls.length).map((ddl) => {
                 const overdue = ddl.dueAt < nowMs;
                 return (
@@ -1463,7 +1488,11 @@ const TAB_ICONS = {
               <button className="btn btn--sm" aria-pressed={taskFilters.length===4} onClick={()=>setTaskFilters(TASK_CATEGORIES.map(c=>c.id))}>全部 {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length}</button>
               {TASK_CATEGORIES.map(c=><button key={c.id} className="btn btn--sm" aria-pressed={taskFilters.includes(c.id)} onClick={()=>setTaskFilters(prev=>prev.includes(c.id)?prev.filter(v=>v!==c.id):[...prev,c.id])}>{c.label} {categoryCounts[c.id]}</button>)}
             </div>
-            {taskRows.length===0?<div className="home-empty">当前筛选下没有任务。可切换顶部分类，或新建任务。</div>:<div className="log-list">
+            {taskRows.length===0
+              ? (hasAcademic
+                  ? <div className="home-empty">当前筛选下没有任务。可切换顶部分类，或新建任务。</div>
+                  : <SyncPrompt title="任务日志还是空的" hint="登录 Gradescope 或互动教学平台后，平台上的作业会自动汇到这里。" onOpen={openPlatformSettings} />)
+              : <div className="log-list">
               {taskRows.map(row=><SwipeRow key={row.id} open={swipedId===row.id} onOpenChange={v=>setSwipedId(v?row.id:null)}
                 actions={[{label:'编辑',onClick:row.open},...(row.platform?[{label:'隐藏',danger:true,onClick:()=>void hideAssignment(row.id)}]:row.task?[{label:'删除',danger:true,onClick:()=>void deleteTask(row.id)}]:[])]}>
                 <button className="log-row" data-overdue={taskCategory(row,nowMs)==='overdue'} data-done={row.done===true} onClick={row.open}>
@@ -1490,7 +1519,14 @@ const TAB_ICONS = {
               <div className="home-empty">课表还没就绪。</div>
             ) : timetable.week === 0 ? (
               <div className="home-empty">
-                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。去「设置 → 用户与账号 → 课表基准」填一下第 1 教学周的周一。
+                还没到第 1 教学周，或者「课表基准」里的开学日期还没填。
+                <br />
+                在「用户与账号 → 课表基准」里填一下第 1 教学周的周一。
+                <br />
+                <button type="button" className="go-pill" onClick={openPlatformSettings}>
+                  去用户与账号
+                  <span aria-hidden="true">›</span>
+                </button>
               </div>
             ) : (
               <TimetableView
@@ -1504,8 +1540,9 @@ const TAB_ICONS = {
                 emptyText={
                   timetable.synced
                     ? '这一周没有排课，翻到别的周看看。'
-                    : '还没同步到课表。去「设置 → 用户与账号」登录教务课表并同步。'
+                    : '还没同步到课表。登录教务课表并同步后，这里会按节次排出来。'
                 }
+                emptyAction={timetable.synced ? undefined : { label: '去平台连接', onClick: openPlatformSettings }}
               />
             )}
             {courseRows.length > 0 && (
@@ -1528,7 +1565,10 @@ const TAB_ICONS = {
               days={scheduleDays}
               emptyText={DEMO_MODE
                 ? '演示数据里这段时间还没有安排。'
-                : '导入 .ics 课表，或在「任务」页添加带时间的任务，它们会出现在这里。'}
+                : hasAcademic
+                  ? '导入 .ics 课表，或在「任务」页添加带时间的任务，它们会出现在这里。'
+                  : '登录教务课表并同步后，课程会自动排进来；也可以导入 .ics。'}
+              emptyAction={DEMO_MODE || hasAcademic ? undefined : { label: '去平台连接', onClick: openPlatformSettings }}
               onOpenEntry={(entry) => {
                 if(entry.kind==='custom'){const event=p.personal.events.find(e=>entry.id.startsWith(`personal:${e.id}:`));if(event)setPersonalEditor({event});return;}
                 // 课程条目不是任务，点了不该有反应；其余按 id 找回对应条目
@@ -1569,6 +1609,8 @@ const TAB_ICONS = {
 
         {tab === 'settings' && (
           <SettingsView
+            key={settingsJump}
+            initialPage={settingsStart}
             onNavigate={goTab} onAddHome={addPluginHome}
             platform={p}
             settings={settings}

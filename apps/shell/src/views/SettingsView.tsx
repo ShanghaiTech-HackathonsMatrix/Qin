@@ -364,7 +364,7 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
               ))}
             </div>
             <div className="faint" style={{ marginTop: 6 }}>
-              列表把整组装进一个框、项间只留发丝线，一屏多看两三条；卡片则每项自己一个框，边界更清楚。管任务日志、每日日程和首页的 DDL。
+              列表不加外框、不铺底色，项与项之间只留一条发丝线，一屏多看两三条；卡片则每项自己一个框，边界更清楚。管任务日志、每日日程和首页的 DDL。
             </div>
           </div>
         </div>

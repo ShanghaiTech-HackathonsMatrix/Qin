@@ -1192,25 +1192,24 @@ button.log-row:active { background: #f0f0ec; }
   点了「列表 / 卡片」界面毫无变化。这里把它落到实处。
 
   只改「一项」怎么画，结构一个都不动，所以任务日志、每日日程、首页 DDL
-  三处列表自动跟着一致：
+  三处列表自动跟着一致。
 
-  卡片（默认以外的那种）：每一项自己一个框，项之间留 9px 空隙。
-  列表：整组装进一个框，项与项之间一条发丝线，没有各自的边框和圆角，
-        上下留白收紧 —— 同样一屏能多看两三条。
+  列表：**不加外框、不铺底色**，项与项之间只留一条发丝线，直接罗列在页面上；
+        上下留白收紧，标题字号收一档，一屏多看两三条。
+  卡片：每一项自己一个框、项间留 9px 空隙 —— 原来的样子。
 */
 .app[data-layout='list'] .log-list,
 .app[data-layout='list'] .ddl-list,
 .app[data-layout='list'] .schedule-day__rows {
-  gap: 0; background: #fff;
-  border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; overflow: hidden;
+  gap: 0; background: none; border: 0; border-radius: 0;
 }
 .app[data-layout='list'] .log-row,
 .app[data-layout='list'] .ddl-card,
 .app[data-layout='list'] .schedule-entry {
-  border: 0; border-bottom: 1px solid #dcdcd6; border-radius: 0;
-  background: transparent; padding-top: 9px; padding-bottom: 9px;
+  border: 0; border-bottom: 1px solid #d0d0ca; border-radius: 0;
+  background: none; padding-top: 9px; padding-bottom: 9px;
 }
-/* 最后一项不留线，否则会和外框贴成两道 */
+/* 最后一项不留线，否则末尾多出一道悬空的横线 */
 .app[data-layout='list'] .log-list > *:last-child .log-row,
 .app[data-layout='list'] .ddl-list > .ddl-card:last-child,
 .app[data-layout='list'] .schedule-day__rows > .schedule-entry:last-child { border-bottom: 0; }
@@ -1219,10 +1218,29 @@ button.log-row:active { background: #f0f0ec; }
 .app[data-layout='list'] .log-row[data-overdue='true'] {
   background: #f0f0ea; box-shadow: inset 3px 0 0 #b4b4ae;
 }
-/* 平台作业（不能删、只能隐藏）在列表模式下也用虚线底边区分 */
+/* 平台作业（只能隐藏不能删）保留虚线底边 */
 .app[data-layout='list'] .log-row[data-static='true'] { border-bottom-style: dashed; }
 
-/* 紧凑一点：行高和标题各收一档，截止那列不用占那么宽 */
+/*
+  课程在卡片模式是反白卡（`background:#111; color:#fff`）。列表模式把底色
+  去掉了，白字就落到白底上 —— Δ=0，真的看不见，日程页前两条课程整行是空的。
+  所以列表模式里取消反白，改用左边一条竖线标记「这是课程」。
+*/
+.app[data-layout='list'] .schedule-entry[data-kind='class'] {
+  background: none; color: #111; box-shadow: inset 3px 0 0 #111;
+}
+.app[data-layout='list'] .schedule-entry[data-kind='class'] .schedule-entry__body small,
+.app[data-layout='list'] .schedule-entry[data-kind='class'] .schedule-entry__tag {
+  color: #555; border-color: #bbb;
+}
+/* 逾期的日程项同理：虚线边框没了，用底色和灰字表示 */
+.app[data-layout='list'] .schedule-entry[data-state='overdue'] { background: #f0f0ea; color: #75756f; }
+.app[data-layout='list'] .schedule-entry[data-state='overdue'] .schedule-entry__body small,
+.app[data-layout='list'] .schedule-entry[data-state='overdue'] .schedule-entry__tag {
+  color: #8d8d87; border-color: #bbb;
+}
+
+/* 紧凑一档 */
 .app[data-layout='list'] .log-row { grid-template-columns: 74px 1fr 18px; }
 .app[data-layout='list'] .log-row__body strong,
 .app[data-layout='list'] .ddl-card__body strong,

@@ -49,7 +49,7 @@ private struct Entry: TimelineEntry {
                 return "正在同步 / Syncing…"
             }
             return date.timeIntervalSince1970 * 1000 < feedbackUntil
-                ? "已请求刷新，等待 App 同步 / Queued for app sync" : ""
+                ? "正在连接平台 / Connecting…" : ""
         }
         let finished = defaults?.double(forKey: "ddl.widget.refreshFinishedAt") ?? 0
         let showResult = finished > 0 && date.timeIntervalSince1970 * 1000 < feedbackUntil

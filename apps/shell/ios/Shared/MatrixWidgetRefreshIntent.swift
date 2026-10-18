@@ -14,15 +14,21 @@ struct MatrixWidgetRefreshIntent: LiveActivityIntent {
         let now = Date().timeIntervalSince1970 * 1000
         defaults.set(now, forKey: "ddl.widget.lastIntentPerformedAt")
         defaults.set(now, forKey: "ddl.widget.refreshRequestedAt")
-        if !defaults.bool(forKey: "ddl.widget.hasSyncedPlatforms") {
-            defaults.set(now, forKey: "ddl.widget.refreshConsumedAt")
-            defaults.set(now, forKey: "ddl.widget.refreshFinishedAt")
-            defaults.set("请先在 App 登录平台并同步 / Sign in and sync in app first", forKey: "ddl.widget.refreshError")
-        } else {
-            defaults.removeObject(forKey: "ddl.widget.refreshError")
-        }
+        defaults.removeObject(forKey: "ddl.widget.refreshError")
         WidgetCenter.shared.reloadAllTimelines()
-        await MatrixRefreshActivity.begin(requestID: now, signedIn: defaults.bool(forKey: "ddl.widget.hasSyncedPlatforms"))
+        async let feedback: Void = MatrixRefreshActivity.begin(requestID: now,
+            signedIn: defaults.bool(forKey: "ddl.widget.hasSyncedPlatforms"))
+        #if MATRIX_APP
+        await MatrixWidgetSync.refresh(requestID: now)
+        #else
+        // LiveActivityIntent is expected to execute in the containing app.
+        // An unexpected extension execution must not pretend that networking ran.
+        defaults.set(now, forKey: "ddl.widget.refreshConsumedAt")
+        defaults.set(Date().timeIntervalSince1970 * 1000, forKey: "ddl.widget.refreshFinishedAt")
+        defaults.set("原生同步进程未启动，请打开 App 一次后重试", forKey: "ddl.widget.refreshError")
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
+        await feedback
         return .result()
     }
 

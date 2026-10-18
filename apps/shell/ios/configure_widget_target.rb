@@ -30,7 +30,7 @@ widget_group = project.main_group.find_subpath("Widget", false) || project.main_
 raise "App source group not found" unless app_group
 
 {
-  app_group => ["MatrixWidgetPlugin.swift", "MatrixBridgeViewController.swift", "PlatformSessionsPlugin.swift"],
+  app_group => ["MatrixWidgetPlugin.swift", "MatrixBridgeViewController.swift", "PlatformSessionsPlugin.swift", "PlatformSessionTransport.swift", "MatrixWidgetNativeEngine.swift", "MatrixWidgetSync.swift"],
   widget_group => ["MatrixWidgets.swift", "MatrixRefreshLiveActivity.swift", "MatrixKillDDLLiveActivity.swift"],
 }.each do |group, names|
   target = group == app_group ? app : widget
@@ -39,6 +39,9 @@ raise "App source group not found" unless app_group
     target.source_build_phase.add_file_reference(ref) unless target.source_build_phase.files_references.include?(ref)
   end
 end
+
+url_shim = app_group.files.find { |ref| ref.path == "MatrixWidgetURL.js" } || app_group.new_file("MatrixWidgetURL.js")
+app.resources_build_phase.add_file_reference(url_shim) unless app.resources_build_phase.files_references.include?(url_shim)
 
 assets = widget_group.files.find { |ref| ref.path == "Assets.xcassets" } || widget_group.new_file("Assets.xcassets")
 widget.resources_build_phase.add_file_reference(assets) unless widget.resources_build_phase.files_references.include?(assets)
@@ -55,6 +58,7 @@ shared_group = project.main_group.find_subpath("Shared", false) || project.main_
 end
 
 app.build_configurations.each do |config|
+  config.build_settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "$(inherited) MATRIX_APP"
   config.build_settings["IPHONEOS_DEPLOYMENT_TARGET"] = "17.0"
   config.build_settings["CODE_SIGN_ENTITLEMENTS"] = "App/App.entitlements"
   config.build_settings["TARGETED_DEVICE_FAMILY"] = "1,2"

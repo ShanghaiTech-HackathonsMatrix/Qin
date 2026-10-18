@@ -18,7 +18,7 @@ enum MatrixRefreshActivity {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let state = MatrixRefreshAttributes.ContentState(
             phase: signedIn ? "queued" : "signInRequired",
-            message: signedIn ? "等待 App 同步 / Queued for app sync" : "请先登录平台 / Sign in in app first")
+            message: signedIn ? "正在检查平台 / Checking platforms" : "请先登录平台 / Sign in in app first")
         do {
             let activity = try Activity.request(
                 attributes: MatrixRefreshAttributes(requestID: requestID),

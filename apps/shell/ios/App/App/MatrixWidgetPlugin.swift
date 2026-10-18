@@ -6,6 +6,9 @@ public class MatrixWidgetPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "MatrixWidgetPlugin"
     public let jsName = "MatrixWidget"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "begin", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acknowledge", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setSnapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "refreshRequest", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "finishRefresh", returnType: CAPPluginReturnPromise),
@@ -58,11 +61,36 @@ public class MatrixWidgetPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("小组件数据无效或 App Group 不可用")
             return
         }
-        defaults.set(data, forKey: "ddl.widget.snapshot")
-        defaults.set(call.getBool("hasSyncedPlatforms") ?? false, forKey: "ddl.widget.hasSyncedPlatforms")
-        defaults.set(Date().timeIntervalSince1970 * 1000, forKey: "ddl.widget.snapshotUpdatedAt")
-        WidgetCenter.shared.reloadAllTimelines()
-        call.resolve()
+        Task { @MainActor in
+            do {
+                guard let input = call.getString("data") else { throw MatrixWidgetNativeEngine.error("缺少平台同步数据") }
+                try MatrixWidgetSync.publish(input)
+                defaults.set(data, forKey: "ddl.widget.snapshot")
+                defaults.set(call.getBool("hasSyncedPlatforms") ?? false, forKey: "ddl.widget.hasSyncedPlatforms")
+                defaults.set(Date().timeIntervalSince1970 * 1000, forKey: "ddl.widget.snapshotUpdatedAt")
+                WidgetCenter.shared.reloadAllTimelines()
+                call.resolve()
+            } catch { call.reject(error.localizedDescription) }
+        }
+    }
+
+    @objc func begin(_ call: CAPPluginCall) {
+        guard let id = call.getString("lease") else { call.reject("缺少同步锁"); return }
+        Task { @MainActor in
+            do { call.resolve(try MatrixWidgetSync.begin(id)) }
+            catch { call.reject(error.localizedDescription) }
+        }
+    }
+    @objc func end(_ call: CAPPluginCall) {
+        guard let id = call.getString("lease") else { call.reject("缺少同步锁"); return }
+        Task { @MainActor in MatrixWidgetSync.end(id); call.resolve() }
+    }
+    @objc func acknowledge(_ call: CAPPluginCall) {
+        guard let id = call.getString("lease") else { call.reject("缺少同步锁"); return }
+        Task { @MainActor in
+            do { try MatrixWidgetSync.acknowledge(id); call.resolve() }
+            catch { call.reject(error.localizedDescription) }
+        }
     }
 
     @objc func refreshRequest(_ call: CAPPluginCall) {

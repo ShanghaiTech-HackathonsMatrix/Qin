@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Matrix 通知桥：各端原生的 notify.local / schedule.exact 实现。当前为**预留骨架**，未接线、未实现。",
+  "description": "Matrix Android 与 iOS 原生通知桥",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -15,7 +15,8 @@
     "android/src/main/",
     "android/build.gradle",
     "ios/Sources",
-    "ios/Package.swift",
+    "Package.swift",
+    "ios/Tests",
     "README.md"
   ],
   "capacitor": {

@@ -1,6 +1,15 @@
 # `@matrix/capacitor-notify` 通知桥
 
-Android 已实现本地闹钟与通知，宿主通过 `CapacitorNotifyPort` 探测和调用。Web 与 iOS 仍明确返回不支持。
+Android 与 iOS 已实现原生通知桥，宿主通过 `CapacitorNotifyPort` 探测和调用。Web 明确返回不支持。
+
+## iOS 行为
+
+- 使用 `UNUserNotificationCenter` 排程、取消和读取系统 pending；权限只在用户主动调用时申请。
+- 按绝对时间排程，同 ID 覆盖；现有 pending 与本批 ID 的并集不得超过 64 条。整批先校验，系统调用失败尽力恢复旧排程，恢复错误也会返回。
+- `exact=true` 表示使用系统指定时刻的触发器，不承诺在专注模式、通知摘要或关闭通知时立即展示。
+- AppDelegate 启动时安装 `MatrixNotificationDelegate.shared`，前台显示横幅，点击数据供 `consumeTap()` 一次消费；沿用宿主现有路由。
+- Swift 包入口在本包根目录 `Package.swift`，由 Capacitor SPM 识别；App 早期使用委托时需直接链接 `MatrixCapacitorNotify` 产品。
+- 2026-10-18：Mac 上 App、Widget 和通知插件编译通过，5 项通知输入/绝对时间测试及 4 项平台请求边界测试通过。尚未实测通知授权、系统弹出、点击和重启恢复，不将单元测试作为这些能力的真机验收。
 
 ## Android 行为
 
@@ -19,7 +28,7 @@ Android 已实现本地闹钟与通知，宿主通过 `CapacitorNotifyPort` 探�
 
 ## 验证状态
 
-2026-10-17：接口与适配层测试、全仓类型检查、Android Java 编译通过。vivo V2352A 真机已验证用户授予通知权限、约 15 秒测试通知实际显示、同 ID 覆盖、取消及 pending 对账；从通知栏点击通知可返回“课表作业”。开机恢复及长期后台触发尚未实测。iOS 未实现、未在 Xcode 验证。
+2026-10-17：接口与适配层测试、全仓类型检查、Android Java 编译通过。vivo V2352A 真机已验证用户授予通知权限、约 15 秒测试通知实际显示、同 ID 覆盖、取消及 pending 对账；从通知栏点击通知可返回“课表作业”。开机恢复及长期后台触发尚未实测。iOS 的验证范围见上文。
 
 ## 5. 已踩过的坑（别再踩）
 

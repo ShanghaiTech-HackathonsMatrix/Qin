@@ -20,9 +20,8 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: 'https',
-    // iOS 的 scheme 与 Android 分开配：默认值是 'capacitor'，
-    // 但我们的 CSP 与鉴权都按 https 写的，两端必须一致。
-    iosScheme: 'https',
+    // WKWebView 的自定义 scheme 不能使用系统保留的 http/https。
+    iosScheme: 'capacitor',
   },
   // ⚠️ 架构不变量 I7：绝不能打开 CapacitorHttp。
   // 一旦打开，window.fetch/XHR 会被补丁成走原生 HTTP，

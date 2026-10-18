@@ -32,4 +32,4 @@ export class AcademicTransport implements Transport {
     }
   }
 }
-export function academicNativeAvailable(): boolean { return Capacitor.getPlatform() === 'android'; }
+export function academicNativeAvailable(): boolean { return ['android', 'ios'].includes(Capacitor.getPlatform()); }

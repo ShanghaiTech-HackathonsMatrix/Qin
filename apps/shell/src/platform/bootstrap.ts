@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import {connectWidget} from './android-widget.ts';
+import {connectIOSWidget} from './ios-widget.ts';
 import { MatrixNotify } from '@matrix/capacitor-notify';
 import { fail, ok } from '@matrix/plugin-api';
 import type { PluginExports } from '@matrix/plugin-api';
@@ -353,7 +354,7 @@ export async function bootstrap(): Promise<Platform> {
     warnings,
     overrides,
   };
-  try{await connectWidget(platform);}catch(e){warnings.push(`挂件初始化失败：${String(e)}`);}
+  try{await connectWidget(platform);await connectIOSWidget(platform);}catch(e){warnings.push(`挂件初始化失败：${String(e)}`);}
   return platform;
 }
 

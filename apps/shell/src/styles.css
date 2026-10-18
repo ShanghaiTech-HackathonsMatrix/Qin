@@ -115,6 +115,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar { padding-top: calc(var(--pad) * 0.45); padding-bottom: calc(var(--pad) * 0.45); }
 .topbar__identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .topbar__sigil { font-size: calc(17px * var(--font-base) * var(--font-scale)); line-height: 1; }
+.topbar__sigil--ios {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.35em;
+  height: 1.35em;
+  color: var(--fg);
+  opacity: 0.85;
+}
+.topbar__sigil--ios svg { display: block; width: 100%; height: 100%; }
 .topbar__sub { color: var(--fg-faint); font-size: var(--fs-xs); margin-top: 1px; }
 .topbar__spacer { flex: 1; }
 

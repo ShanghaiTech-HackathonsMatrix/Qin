@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { type Course, type Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
 import { saveOverrides, type Overrides } from './platform/overrides';
@@ -1327,7 +1328,15 @@ const TAB_ICONS = {
     <div className="app" data-layout={settings.layout} data-large-font={settings.fontScale>1.15} style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
       <div className="topbar">
         <div className="topbar__identity">
-          <span className="topbar__sigil" aria-hidden="true">✳</span>
+          <span className={`topbar__sigil${Capacitor.getPlatform() === 'ios' ? ' topbar__sigil--ios' : ''}`} aria-hidden="true">
+            {Capacitor.getPlatform() === 'ios' ? (
+              <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M12 7.5v9M7.5 12h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+              </svg>
+            ) : '✳'}
+          </span>
           <div>
             <div className="topbar__title">秦 <span>/ QIN</span></div>
             <div className="topbar__sub">{tab === 'home' ? '冒险日志' : tab === 'timeline' ? '任务日志' : tab === 'timetable' ? '每周课表' : tab === 'courses' ? '每日日程' : '行囊设置'}</div>

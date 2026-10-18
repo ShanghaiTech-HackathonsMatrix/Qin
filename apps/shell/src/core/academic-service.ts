@@ -83,7 +83,7 @@ export class AcademicService {
   }
   async login(provider:Provider) {
     if(this.enabled[provider]===false)throw new Error('请先启用此插件');
-    if(!this.available) throw new Error('此构建仅 Android 支持平台网页登录');
+    if(!this.available) throw new Error('请在 Android 或 iOS App 中使用平台网页登录');
     return this.serial(async()=>{
       const result=await this.loginPage(provider);
       if(!result.completed) throw new Error('已取消登录');
@@ -100,7 +100,7 @@ export class AcademicService {
   });}
   private async runSync(provider:Provider,deep=false) {
     if(this.enabled[provider]===false)throw new Error('请先启用此插件');
-    if(!this.available) throw new Error('请在 Android 端登录并同步');
+    if(!this.available) throw new Error('请在 Android 或 iOS App 中登录并同步');
     this.statuses[provider]='正在读取…';this.changed();
     try {
       const s=this.settings;

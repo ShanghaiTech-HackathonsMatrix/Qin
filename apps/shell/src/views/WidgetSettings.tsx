@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AndroidWidget, widgetAvailable } from '../platform/android-widget';
 import type { Platform } from '../platform/bootstrap';
+import { requestWidgetPin, widgetPinMessage, type WidgetPinState } from '../platform/widget-pin';
 import './widget-settings.css';
 
 export default function WidgetSettings({ platform }: { platform: Platform }) {
@@ -9,6 +10,51 @@ export default function WidgetSettings({ platform }: { platform: Platform }) {
   const [note, setNote] = useState<{ error: boolean; text: string } | null>(null);
   const [action, setAction] = useState<string | null>(null);
   const locked = useRef(false);
+  const [pin, setPin] = useState<WidgetPinState | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinReadError, setPinReadError] = useState<string | null>(null);
+  const pinRead = useRef(0);
+
+  useEffect(() => {
+    if (!available) return;
+    let active = true;
+    const read = async () => {
+      if (locked.current || document.visibilityState === 'hidden') return;
+      const sequence = ++pinRead.current;
+      try {
+        const next = await AndroidWidget.pinState();
+        if (active && sequence === pinRead.current) {
+          setPin(next);
+          setPinReadError(null);
+          if (next.status === 'confirmed') setPinError(null);
+        }
+      } catch (e) {
+        if (active && sequence === pinRead.current)
+          setPinReadError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    void read();
+    const timer = setInterval(() => void read(), 2000);
+    document.addEventListener('visibilitychange', read);
+    window.addEventListener('focus', read);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', read);
+      window.removeEventListener('focus', read);
+    };
+  }, [available]);
+
+  const add = async () => {
+    if (locked.current) return;
+    locked.current = true;
+    ++pinRead.current;
+    setAction('add');
+    setPinError(null);
+    try { setPin(await requestWidgetPin(AndroidWidget)); }
+    catch (e) { setPinError(e instanceof Error ? e.message : String(e)); }
+    finally { locked.current = false; setAction(null); }
+  };
 
   useEffect(() => {
     if (!available) return;
@@ -51,11 +97,24 @@ export default function WidgetSettings({ platform }: { platform: Platform }) {
         <span className="widget-settings__badge">桌面速览</span>
         <h3>课程和待办，抬眼就能看</h3>
         <p>放到手机桌面，不打开应用也能查看今日安排。</p>
-        <button className="btn btn--primary widget-settings__add" disabled={disabled}
-          onClick={() => void run('add', () => AndroidWidget.pinWidget(), '请在弹出的系统窗口中确认添加。')}>
-          <span aria-hidden="true">＋</span> {action === 'add' ? '正在请求添加…' : '添加到桌面'}
+        <button className="btn btn--primary widget-settings__add"
+          disabled={disabled || !pin?.supported || pin.status === 'requested'} onClick={() => void add()}>
+          <span aria-hidden="true">＋</span> {action === 'add' ? '正在请求添加…'
+            : pin?.status === 'requested' ? '等待桌面确认…'
+            : pin?.supported === false ? '请手动添加挂件'
+            : available && !pin ? '正在检测桌面…' : '添加到桌面'}
         </button>
-        <small>{available ? '点击后，在系统窗口中确认即可。' : '目前仅支持 Android；此处可预览使用说明。'}</small>
+        {available ? <>
+          <p className="widget-settings__pin-feedback" role={pinError || pinReadError ? 'alert' : 'status'}>
+            {pinError || pinReadError || (pin ? widgetPinMessage(pin) : '正在读取桌面支持情况，也可以直接手动添加。')}
+          </p>
+          {pin && <small>当前检测到 {pin.widgetCount} 个挂件</small>}
+          <div className="widget-settings__manual">
+            <strong>手动添加方法</strong>
+            <p>返回桌面，长按空白处 → 小组件 / 挂件 / 安卓组件 → 秦QIN，再拖到有空位的桌面。</p>
+            <p>旧版名称可能显示为 Matrix。若无法放置，请确认桌面有足够空间，并检查是否锁定了桌面布局。</p>
+          </div>
+        </> : <small>目前仅支持 Android；此处可预览使用说明。</small>}
       </div>
 
       <div className="widget-settings__section">

@@ -1,12 +1,13 @@
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {widgetSnapshot,type WidgetData} from './widget-data.ts';
 import type {Platform} from './bootstrap.ts';
+import type {WidgetPinState} from './widget-pin.ts';
 interface Bridge {
   setSnapshot(input:{data:string;snapshot:string}):Promise<void>;
   begin(input:{lease:string}):Promise<{acquired:boolean;pending:string}>;
   end(input:{lease:string}):Promise<void>;acknowledge():Promise<void>;
   configure(input:{enabled:boolean}):Promise<void>;state():Promise<{enabled:boolean;status:string;pending:boolean}>;
-  pinWidget():Promise<void>;requestRefresh():Promise<void>;syncNow():Promise<void>;
+  pinState():Promise<WidgetPinState>;pinWidget():Promise<WidgetPinState>;requestRefresh():Promise<void>;syncNow():Promise<void>;
   consumeTap():Promise<{id:string|null;page?:string|null}>;
 }
 export const AndroidWidget=registerPlugin<Bridge>('MatrixWidget');

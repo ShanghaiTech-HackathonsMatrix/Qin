@@ -1,10 +1,7 @@
 package dev.matrix.shell;
 
 import android.appwidget.AppWidgetManager;
-import android.appwidget.AppWidgetHost;
-import android.content.Intent;
 import android.content.ComponentName;
-import android.os.Build;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -57,22 +54,18 @@ public final class MatrixWidgetPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void pinState(PluginCall call) {
+        try { call.resolve(MatrixWidgetPin.state(getContext())); }
+        catch (RuntimeException e) { call.reject("无法读取桌面挂件状态，可按下方说明手动添加。"); }
+    }
+
+    @PluginMethod
     public void pinWidget(PluginCall call) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            call.reject("当前 Android 版本不支持固定小组件");
-            return;
-        }
-        AppWidgetManager manager = AppWidgetManager.getInstance(getContext());
-        ComponentName provider = new ComponentName(getContext(), MatrixWidgetProvider.class);
-        if (!manager.isRequestPinAppWidgetSupported()) {
-            call.reject("当前桌面不支持系统确认后添加小组件，请从桌面卡片列表手动添加");
-            return;
-        }
-        if (!manager.requestPinAppWidget(provider, null, null)) {
-            call.reject("系统未接受添加小组件请求");
-            return;
-        }
-        call.resolve();
+        if (getActivity() == null) { call.reject("请回到应用前台后重试，或手动添加挂件。"); return; }
+        getActivity().runOnUiThread(() -> {
+            try { call.resolve(MatrixWidgetPin.request(getContext())); }
+            catch (RuntimeException e) { call.reject("桌面未能完成添加请求。请保持手机解锁，或按下方说明手动添加。"); }
+        });
     }
 
     @PluginMethod

@@ -17,6 +17,10 @@
 .widget-settings .btn { min-height: 44px; white-space: normal; font-size: 1em; }
 .widget-settings__add { width: 100%; margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 8px; }
 .widget-settings__add > span { font-size: 1.4em; }
+.widget-settings__intro .widget-settings__pin-feedback { margin-top: 12px; color: var(--fg, #111); }
+.widget-settings__pin-feedback[role='alert'] { font-weight: 700; }
+.widget-settings__manual { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--fg-line, #ddd); font-size: .92em; }
+.widget-settings__manual p { margin-top: 6px; }
 .widget-settings__section { padding: 20px; border-top: 1px solid var(--fg-line, #ddd); }
 .widget-settings h4 { margin: 0 0 16px; font-size: 1em; }
 .widget-settings__gestures { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }

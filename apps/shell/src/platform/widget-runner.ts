@@ -36,7 +36,7 @@ export async function syncProvider(provider:Provider,data:WidgetData,request:(r:
     const next=await mod.next?.({step,result:last,status});
     plan=next?{requests:next.requests}:{requests:[]};
   }
-  if(!latest||!latest.courses.length)throw new Error('未读取到课程，保留旧数据');
+  if(!latest||(!latest.courses.length&&!latest.courseScope))throw new Error('未读取到课程，保留旧数据');
   return latest;
 }
 async function run(){

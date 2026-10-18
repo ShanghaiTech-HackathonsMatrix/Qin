@@ -17,6 +17,7 @@
 import type { Transport, TransportRequest, TransportResponse } from '../../../core/types.ts';
 import type { SecureStore } from '../../../platform/strategies/kv/types.ts';
 import { ENTRY, PROVIDERS, type Provider } from './model.ts';
+import {currentAcademicTerm} from '../../../app/academic-term.ts';
 
 /**
  * dev + `?demo=1` 时开启。生产构建里 `DEV` 是 false，这条通道等于不存在。
@@ -102,8 +103,10 @@ function gradescopeCourse(course: 11 | 12, now: number): string {
 }
 
 const BLACKBOARD_ENTRY = `
+<div class="portlet"><span class="moduleTitle">未完成课程列表（Uncompleted Course List）</span>
 <a href="/webapps/blackboard/execute/launcher?type=Course&amp;id=_123_1&amp;url=">操作系统</a>
 <a href="/webapps/blackboard/execute/launcher?type=Course&amp;id=_123_2&amp;url=">计算机网络</a>
+</div>
 <div class="portlet"><span class="moduleTitle">待完成作业</span>
 <a href="/webapps/assignment/uploadAssignment?content_id=_9001_1&amp;course_id=_123_1">进程调度实验</a></div>`;
 
@@ -149,7 +152,7 @@ index = 1 * unitCount + 4; index = 1 * unitCount + 5;
 function pageFor(url: URL, now: number): string | null {
   const path = url.pathname;
   if (url.hostname === 'www.gradescope.com') {
-    if (/^\/account\/?$/.test(path)) return GRADESCOPE_ACCOUNT;
+    if (/^\/account\/?$/.test(path)) return GRADESCOPE_ACCOUNT.replace('Fall 2026',currentAcademicTerm(now));
     if (/^\/courses\/11\/?$/.test(path)) return gradescopeCourse(11, now);
     if (/^\/courses\/12\/?$/.test(path)) return gradescopeCourse(12, now);
     return null;

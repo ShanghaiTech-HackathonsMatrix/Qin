@@ -4,13 +4,14 @@ import type {AcademicSnapshot} from '../plugins/builtin/academic/connectors.ts';
 import type {Course,Task} from '../domain/types.ts';
 import {compareTasks} from '../app/task-status.ts';
 import {compactDdlLabels} from '../app/ddl-labels.ts';
+import {currentTermSnapshot} from '../app/academic-term.ts';
 export interface WidgetData {
   snapshots:AcademicSnapshot[];settings:TimetableSettings;corrections:UserCorrections;
   enabled:Record<string,boolean|undefined>;tasks:Task[];courses:Course[];
 }
 /** 同一入口用于 App 发布和后台同步。不会把“消失”或读取失败当作提交。 */
 export function widgetSnapshot(data:WidgetData,now:number){
-  const snapshots=data.snapshots.filter(s=>data.enabled[s.provider]!==false);
+  const snapshots=data.snapshots.filter(s=>data.enabled[s.provider]!==false).map(s=>currentTermSnapshot(s,now));
   const undatedLocal=data.tasks.filter(t=>t.kind!=='course'&&t.status!=='dismissed'&&(t.dueAt===null||!Number.isFinite(t.dueAt))).map(t=>({id:t.id,title:t.title,courseId:t.courseId,dueAt:null,done:t.status==='done',provider:undefined,url:undefined,courseUrl:undefined,courseTitle:undefined,needsReview:false}));
   const undatedPlatform=snapshots.flatMap(s=>s.assignments.flatMap(a=>{
     const fix=data.corrections.assignments[a.id],merged={...a,...fix},selected=data.settings.selectedCourses[s.provider];

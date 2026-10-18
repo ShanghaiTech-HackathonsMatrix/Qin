@@ -3,6 +3,7 @@ import { PLUGIN_IDS, PROVIDERS, defaultSettings, validateSettings, type Provider
 import { SNAPSHOT, type AcademicSnapshot } from '../plugins/builtin/academic/connectors.ts';
 import { explainSyncError, splitSyncErrors } from './sync-errors.ts';
 import {academicReminders} from '../platform/academic-reminders.ts';
+import {currentAcademicTerm} from '../app/academic-term.ts';
 import type { PluginHost } from './plugin-host.ts';
 import type { SecureStore } from '../platform/strategies/kv/types.ts';
 import type { NotifyPort } from './notify/port.ts';
@@ -19,6 +20,7 @@ export class AcademicService {
   cancel() {for(const p of PROVIDERS)this.host.cancelSync(PLUGIN_IDS[p]);}
   private tail: Promise<unknown> = Promise.resolve();
   private listeners = new Set<()=>void>();
+  private projectedTerm='';
   private host: PluginHost;
   private kv: SecureStore;
   private notify: NotifyPort;
@@ -46,7 +48,7 @@ export class AcademicService {
     for(const p of PROVIDERS)if(this.enabled[p]===false)await this.host.registry.deactivate(PLUGIN_IDS[p]);
     await this.rebuild();
   }
-  refreshBackground(){return this.serial(async()=>{});}
+  refreshBackground(){return this.serial(async()=>{if(this.projectedTerm!==currentAcademicTerm(Date.now()))await this.rebuild();});}
   async importBackground(snapshots:AcademicSnapshot[]) {
     const previous=this.snapshots;
     const merged=PROVIDERS.flatMap(p=>{
@@ -54,7 +56,7 @@ export class AcademicService {
       return next&&(!old||next.syncedAt>old.syncedAt)?[next]:old?[old]:[];
     });
     if(merged.every(s=>previous.includes(s)))return;
-    projectAcademic(merged,this.settings,this.corrections);
+    projectAcademic(merged,this.settings,this.corrections,Date.now());
     for(const s of merged){const result=this.host.bus.emit(PLUGIN_IDS[s.provider],{type:SNAPSHOT,id:'current',data:{json:JSON.stringify(s)}});if(!result.ok)throw new Error(result.message);}
     const flushed=await this.host.bus.flush();if(!flushed.ok)throw new Error(flushed.message);
     this.snapshots=merged;this.migrateLessonCorrections(previous);
@@ -140,7 +142,7 @@ export class AcademicService {
       await this.persist();
       // 少读了几个页面就说出来，别假装全齐了。
       const gap=soft.length?`（${soft.length} 个页面没读到）`:'';
-      this.statuses[provider]=`同步成功：${snap.courses.length} 门课程，${provider==='eams'?`${snap.rules.length} 条排课`:`${snap.assignments.length} 项作业`}${gap}`;
+      this.statuses[provider]=`同步成功：${provider==='eams'?'':'本学期 '}${snap.courses.length} 门课程，${provider==='eams'?`${snap.rules.length} 条排课`:`${snap.assignments.length} 项作业`}${gap}`;
     } catch(e) {
       const previous=this.snapshots;this.readSnapshots();this.migrateLessonCorrections(previous);
       try{await this.rebuild();await this.persist();}catch{/* 原始快照仍在总线中，下次启动可恢复；保留本轮的明确错误。 */}
@@ -148,7 +150,7 @@ export class AcademicService {
     }
   }
   saveSettings(next:TimetableSettings) { return this.serial(async()=>{
-    validateSettings(next);projectAcademic(this.snapshots,next,this.corrections);
+    validateSettings(next);projectAcademic(this.snapshots,next,this.corrections,Date.now());
     const edited=JSON.stringify(next.periods)!==JSON.stringify(this.settings.periods);
     await this.applyConfig(next,this.corrections);
     if(edited) await this.kv.set('academic.periods-edited','1');
@@ -171,7 +173,7 @@ export class AcademicService {
     await this.applyConfig(this.settings,next);
   });}
   private async applyConfig(settings:TimetableSettings,corrections:UserCorrections) {
-    projectAcademic(this.snapshots,settings,corrections);
+    projectAcademic(this.snapshots,settings,corrections,Date.now());
     const previous={settings:this.settings,corrections:this.corrections};
     this.settings=structuredClone(settings);this.corrections=structuredClone(corrections);
     try {await this.persist();await this.rebuild();}
@@ -184,7 +186,7 @@ export class AcademicService {
   private persist() {return this.kv.set('academic.config.v1',JSON.stringify({settings:this.settings,corrections:this.corrections,enabled:this.enabled}));}
   private async rebuild() {
     // 先计算/校验全量结果，再替换派生实体；原始快照及人工修正始终独立保留。
-    projectAcademic(this.snapshots,this.settings,this.corrections);
+    projectAcademic(this.snapshots,this.settings,this.corrections,Date.now());
     const backup=['course','academic_event'].flatMap(type=>{const r=this.host.bus.read(ACADEMIC_ID,type,{owner:ACADEMIC_ID});return r.ok?r.data:[];});
     const removeProjection=()=>{for(const type of ['course','academic_event']) {const r=this.host.bus.read(ACADEMIC_ID,type,{owner:ACADEMIC_ID});if(r.ok)for(const row of r.data)this.host.bus.drop(ACADEMIC_ID,type,row.id);}};
     try {
@@ -198,6 +200,7 @@ export class AcademicService {
       await this.host.refreshSlots(ACADEMIC_ID);
       throw error;
     }
+    this.projectedTerm=currentAcademicTerm(Date.now());
     try {await this.reconcileReminders();} catch(e) {this.reminderStatus=`提醒排程失败：${e instanceof Error?e.message:String(e)}`;}
     this.changed();
   }

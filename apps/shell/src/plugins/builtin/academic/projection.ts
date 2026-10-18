@@ -1,6 +1,7 @@
 import type { Manifest, ParsedEntity, PluginExports } from '@matrix/plugin-api';
 import { assignmentEvents, expandLessons, type TimetableSettings, type UserCorrections } from './model.ts';
 import type { AcademicSnapshot } from './connectors.ts';
+import {currentTermSnapshot} from '../../../app/academic-term.ts';
 
 export const ACADEMIC_ID='app.matrix.academic';
 export const projectionManifest: Manifest={ id:ACADEMIC_ID,name:'课表与作业',version:'0.1.0',apiVersion:'^1.0.0',kind:'first-party',
@@ -10,7 +11,8 @@ export const projectionManifest: Manifest={ id:ACADEMIC_ID,name:'课表与作业
     {name:'course',schema:{type:'object',properties:{title:{type:'string',maxLength:200},code:{type:'string'},source:{type:'string'}},required:['title'],additionalProperties:false}},
   ],consumesSlots:[{slot:'app.matrix.timeline.event',from:'academic_event',map:{title:'title',startAt:'startAt',endAt:'endAt',type:'type',detail:'detail',courseId:'courseId'}}]},
 };
-export function projectAcademic(snapshots: AcademicSnapshot[], settings: TimetableSettings, corrections: UserCorrections): ParsedEntity[] {
+export function projectAcademic(snapshots: AcademicSnapshot[], settings: TimetableSettings, corrections: UserCorrections,now:number): ParsedEntity[] {
+  snapshots=snapshots.map(s=>currentTermSnapshot(s,now));
   const selected=(provider:AcademicSnapshot['provider'],id:string)=>!settings.selectedCourses[provider]||settings.selectedCourses[provider]!.includes(id);
   const lessons=snapshots.flatMap(s=>s.rules.filter(r=>selected(s.provider,r.courseId))), assignments=snapshots.flatMap(s=>s.assignments.filter(a=>selected(s.provider,a.courseId)));
   const events=[...expandLessons(lessons,settings,corrections),...assignmentEvents(assignments,corrections)];
@@ -24,5 +26,5 @@ export const projectionPlugin:PluginExports={plan(input){
   const snapshots=JSON.parse(input.settings?.snapshots??'[]') as AcademicSnapshot[];
   const settings=JSON.parse(input.settings?.timetable??'{}') as TimetableSettings;
   const corrections=JSON.parse(input.settings?.corrections??'{"lessons":{},"assignments":{}}') as UserCorrections;
-  return {requests:[],entities:projectAcademic(snapshots,settings,corrections)};
+  return {requests:[],entities:projectAcademic(snapshots,settings,corrections,input.now)};
 },parsers:{}};

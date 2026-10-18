@@ -22,6 +22,7 @@ import WeekStrip from './components/WeekStrip';
 import TimetableView from './views/TimetableView';
 import { buildWeekDays, lessonCount, teachingWeek } from './app/timetable';
 import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, type DdlItem } from './app/ddl-items';
+import {currentTermSnapshot} from './app/academic-term';
 import {compactDdlLabels} from './app/ddl-labels';
 import AssignmentSheet, { type AssignmentDraft } from './components/AssignmentSheet';
 import PersonalEventSheet from './components/PersonalEventSheet';
@@ -648,8 +649,8 @@ export default function App() {
    * 快照数组本身是可变的，引用不变 React 就不会更新。
    */
   const academicSnapshots = useMemo(
-    () => (platform === null ? [] : platform.academic.snapshots),
-    [platform, academicTick],
+    () => (platform === null ? [] : platform.academic.snapshots.filter(s=>platform.academic.enabled[s.provider]!==false).map(s=>currentTermSnapshot(s,nowMs))),
+    [platform, academicTick, nowMs],
   );
   /** 有没有同步到真数据。有的话演示用的虚构样本让位 —— 两套并存只会互相打架 */
   const hasAcademic = academicSnapshots.length > 0;
@@ -686,11 +687,11 @@ export default function App() {
     () => (platform === null
       ? []
       : platformDdls(
-          platform.academic.snapshots,
+          academicSnapshots,
           platform.academic.settings.selectedCourses,
           platform.academic.corrections.assignments,
         )),
-    [platform, academicTick],
+    [platform, academicTick, academicSnapshots],
   );
 
   const ddlItems = useMemo<DdlItem[]>(() => {
@@ -854,7 +855,7 @@ const TAB_ICONS = {
   /** 平台作业的原始记录（未叠个人修正）。找不到说明同步数据变了 */
   const rawAssignment = assignmentId === null
     ? undefined
-    : platform?.academic.snapshots.flatMap((snap) => snap.assignments).find((a) => a.id === assignmentId);
+    : academicSnapshots.flatMap((snap) => snap.assignments).find((a) => a.id === assignmentId);
 
   /**
    * 弹层要显示的内容 = 平台原文 + 个人修正。
@@ -864,7 +865,7 @@ const TAB_ICONS = {
     if (assignmentId === null || rawAssignment === undefined) return null;
     const fix = platform?.academic.corrections.assignments[assignmentId];
     const merged = { ...rawAssignment, ...fix };
-    const snapshot = platform?.academic.snapshots.find((snap) => snap.assignments.some((a) => a.id === assignmentId));
+    const snapshot = academicSnapshots.find((snap) => snap.assignments.some((a) => a.id === assignmentId));
     return {
       id: merged.id,
       title: merged.title,
@@ -880,7 +881,7 @@ const TAB_ICONS = {
       url:merged.url,
       courseUrl:merged.provider==='blackboard'?snapshot?.courses.find(c=>c.id===merged.courseId)?.url:undefined,
     };
-  }, [assignmentId, rawAssignment, platform, academicTick]);
+  }, [assignmentId, rawAssignment, platform, academicTick, academicSnapshots]);
 
   const saveAssignment = useCallback(async (id: string, patch: {
     title?: string; dueAt?: number | null; note?: string; done?: boolean; needsReview?:boolean;
@@ -967,7 +968,7 @@ const TAB_ICONS = {
   }, [ddlItems, visibleTasks, demoExtraTasks]);
   const localState=(t:Task)=>({id:t.id,title:t.title,dueAt:t.dueAt,done:t.status==='done',completedAt:t.updatedAt});
   const undatedTasks=allUndatedTasks.filter(t=>taskFilters.includes(taskCategory(localState(t),nowMs))).sort((a,b)=>compareTasks(localState(a),localState(b),nowMs));
-  const allUndatedPlatform=useMemo(()=>(platform?.academic.snapshots??[]).filter(s=>platform?.academic.enabled[s.provider]!==false).flatMap(s=>s.assignments.map(a=>({...a,...platform?.academic.corrections.assignments[a.id],titleEdited:platform?.academic.corrections.assignments[a.id]?.title!==undefined,courseTitle:s.courses.find(c=>c.id===a.courseId)?.title})).filter(a=>a.dueAt===null && !a.hidden && (!platform?.academic.settings.selectedCourses[s.provider] || platform.academic.settings.selectedCourses[s.provider]!.includes(a.courseId))).map(a=>({...a,done:a.done??['submitted','graded'].includes(a.status)}))),[platform,academicTick]);
+  const allUndatedPlatform=useMemo(()=>academicSnapshots.flatMap(s=>s.assignments.map(a=>({...a,...platform?.academic.corrections.assignments[a.id],titleEdited:platform?.academic.corrections.assignments[a.id]?.title!==undefined,courseTitle:s.courses.find(c=>c.id===a.courseId)?.title})).filter(a=>a.dueAt===null && !a.hidden && (!platform?.academic.settings.selectedCourses[s.provider] || platform.academic.settings.selectedCourses[s.provider]!.includes(a.courseId))).map(a=>({...a,done:a.done??['submitted','graded'].includes(a.status)}))),[platform,academicTick,academicSnapshots]);
   const compactLabels=useMemo(()=>compactDdlLabels([...ddlItems,...allUndatedPlatform]),[ddlItems,allUndatedPlatform]);
   const compactTitle=(item:{id:string;title:string})=>compactLabels.get(item.id)?.title??item.title;
   const compactMeta=(item:DdlItem)=>ddlMeta({...item,courseTitle:compactLabels.get(item.id)?.course||item.courseTitle},courseFor(item.courseId??''));
@@ -1418,7 +1419,7 @@ const TAB_ICONS = {
             <div className="quest-section__head">
               <h2>任务日志</h2>
               <span className="quest-section__ornament">
-                {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length} 条 · 平台与本机
+                {ddlItems.length+allUndatedTasks.length+allUndatedPlatform.length} 条 · 本学期平台与本机
               </span>
             </div>
 

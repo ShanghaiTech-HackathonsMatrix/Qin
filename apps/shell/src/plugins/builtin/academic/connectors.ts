@@ -1,6 +1,7 @@
 import type { Manifest, ParseInput, ParseResult, PluginExports, PlannedRequest } from '@matrix/plugin-api';
 import { anchors, attr, requirePage } from './html.ts';
-import { blackboardAssignment, blackboardCourses, blackboardPending, eamsSelection, eamsTimetable, gradescopeAssignments, gradescopeCourses } from './parsers.ts';
+import { blackboardAssignment, blackboardCourses, blackboardCurrentCourses, blackboardPending, eamsSelection, eamsTimetable, gradescopeAssignments, gradescopeCourses } from './parsers.ts';
+import {courseTerm,currentAcademicTerm,currentTermSnapshot} from '../../../app/academic-term.ts';
 import { ENTRY, PLUGIN_IDS, type AcademicCourse, type Assignment, type LessonRule, type Period, type Provider } from './model.ts';
 
 export const SNAPSHOT = 'academic_snapshot';
@@ -9,6 +10,8 @@ export interface AcademicSnapshot {
   provider: Provider; syncedAt: number; courses: AcademicCourse[]; assignments: Assignment[]; rules: LessonRule[];
   periods: Period[]; semester: string;
   mode?:string;
+  /** 已可靠识别的本期课程范围；BB 以未完成课程分组为准，供旧缓存跨学期失效。 */
+  courseScope?:string;
 }
 export function connectorManifest(provider: Provider): Manifest {
   return { id:PLUGIN_IDS[provider], name:{gradescope:'Gradescope 作业',blackboard:'Blackboard 作业',eams:'教务课表'}[provider], version:'0.1.0', apiVersion:'^1.0.0', kind:'first-party',
@@ -41,12 +44,10 @@ export function createConnector(provider: Provider): PluginExports {
   };
   const finish = (): ParseResult => {
     /*
-      一页都没读到就等于没同步。
-      空快照一旦发出去，就会把上一轮读好的课程和作业整片盖掉 —— 而界面上
-      只会显示一句「同步失败」，用户完全看不出数据已经没了。
-      宁可这一轮失败、保留旧数据。
+      仅在可靠识别本期范围后接受空课程（例如只有历史学期）。
+      未读到页面或结构未知仍失败，不能把读取异常当成「本期无课」。
     */
-    if (snapshot.courses.length === 0) throw new Error('这一轮没读到任何课程，已保留上次结果');
+    if (snapshot.courses.length === 0 && !snapshot.courseScope) throw new Error('这一轮没读到任何课程，已保留上次结果');
     /*
       丢页保护。`broker` 允许单页失败后继续扫（那是对的 —— 一页超时不该连坐
       整轮），但「一页失败」和「大半失败」是两件事：后者说明这次网络根本不通，
@@ -74,16 +75,21 @@ export function createConnector(provider: Provider): PluginExports {
           snapshot.rules=parsed.rules;snapshot.courses=parsed.courses;snapshot.periods=parsed.periods;
         }
       } else if (page.kind==='entry') {
-        snapshot.courses=provider==='gradescope'?gradescopeCourses(input.body,input.baseUrl):blackboardCourses(input.body,input.baseUrl);
+        const allCourses=provider==='gradescope'?gradescopeCourses(input.body,input.baseUrl):blackboardCurrentCourses(input.body,input.baseUrl);
+        if(provider==='gradescope' && allCourses.some(c=>!courseTerm(c.term)))throw new Error('部分 Gradescope 课程未识别到学期，已保留上次数据，请检查课程分组');
+        snapshot.courseScope=currentAcademicTerm(snapshot.syncedAt);
+        snapshot.courses=allCourses;
+        snapshot=currentTermSnapshot(snapshot,snapshot.syncedAt);
         const selection=selected();
         const courses=snapshot.courses.filter(c=>selection===null||selection.includes(c.id));
         if (courses.length>60) throw new Error('课程超过 60 门，请选择需要同步的课程');
-        if(provider==='blackboard' && settings.scanMode!=='deep') {
-          const pending=blackboardPending(input.body,input.baseUrl,snapshot.courses);
+        if(provider==='blackboard' && settings.scanMode!=='deep' && courses.length) {
+          const pending=blackboardPending(input.body,input.baseUrl,blackboardCourses(input.body,input.baseUrl));
           if(!pending) throw new Error('未识别 BB 待完成作业模块，已保留历史数据；可使用「扫描课程目录」补充读取');
           snapshot.mode='pending';
           const listed=new Set<string>();
-          for(const link of pending.links.filter(x=>selection===null||selection.includes(x.course.id))) {
+          const active=new Set(courses.map(c=>c.id));
+          for(const link of pending.links.filter(x=>active.has(x.course.id))) {
             enqueue({...link,kind:'assignment',depth:0});
             const u=new URL(link.url);listed.add(`${link.course.id}:assignment:${u.searchParams.get('content_id')??u.searchParams.get('assign_group_id')}`);
           }

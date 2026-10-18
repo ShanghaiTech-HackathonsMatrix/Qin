@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
+import {currentAcademicTerm} from '../../../app/academic-term.ts';
 import { anchors, parseDeadline } from './html.ts';
 import { gradescopeCourses, gradescopeAssignments, blackboardCourses, blackboardAssignment, blackboardPending, eamsSelection, eamsTimetable } from './parsers.ts';
 import { defaultSettings, ENTRY, PLUGIN_IDS, parseWeeks, expandLessons, type AcademicCourse } from './model.ts';
@@ -92,7 +93,7 @@ class Notifications implements NotifyPort {
 async function setup(kv=new MemoryKv()){
   const transport=new MockTransport();
   const host=new PluginHost({core:createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.eams).hostname]}}}),
-    dataBackend:new KvEntityBackend(kv),modules:new Map([[PLUGIN_IDS.eams,createConnector('eams')],[ACADEMIC_ID,projectionPlugin],[TIMELINE_ID,timelinePlugin]])});
+    dataBackend:new KvEntityBackend(kv),modules:new Map([[PLUGIN_IDS.eams,createConnector('eams')],[PLUGIN_IDS.gradescope,createConnector('gradescope')],[ACADEMIC_ID,projectionPlugin],[TIMELINE_ID,timelinePlugin]])});
   for(const m of [timelineManifest,connectorManifest('eams'),projectionManifest]){
     const result=await host.install(m,{allowReservedPrefix:true});assert.equal(result.ok,true,JSON.stringify(result));
   }
@@ -227,7 +228,7 @@ test('单页失败不再中断串行扫描：后面的页面照样扫，快照�
   const origin=new URL(ENTRY.blackboard).origin;
   // 连接器会把查询参数排序（canonical），这里直接按排序后的形状排应答
   const courseUrl=(id:string)=>`${origin}/webapps/blackboard/execute/launcher?course_id=${id}&id=${id}&type=Course`;
-  const portal='<a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1&course_id=_1_1">操作系统</a>'
+  const portal='<span class="moduleTitle">未完成课程列表</span><a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1&course_id=_1_1">操作系统</a>'
     +'<a href="/webapps/blackboard/execute/launcher?type=Course&id=_2_1&course_id=_2_1">算法设计</a>';
   transport.queue(ENTRY.blackboard,{status:200,body:portal});
   // 第一门课的网络直接断掉，第二门课正常
@@ -241,8 +242,19 @@ test('单页失败不再中断串行扫描：后面的页面照样扫，快照�
 });
 
 const bbCourse:AcademicCourse={id:'blackboard:_1_1',title:'合成课程',code:'',term:'',provider:'blackboard',url:new URL('/webapps/blackboard/execute/launcher?type=Course&id=_1_1',ENTRY.blackboard).href};
-const bbPortal='<a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1">合成课程</a><span class="moduleTitle">待完成作业</span>';
+const bbPortal='<span class="moduleTitle">未完成课程列表</span><a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1">合成课程</a><span class="moduleTitle">待完成作业</span>';
 const bbUrl=(i:number)=>new URL(`/webapps/assignment/uploadAssignment?content_id=_${i}_1&course_id=_1_1`,ENTRY.blackboard).href;
+test('宿主提醒对账撤销历史学期已排通知，保留本期与本机提醒',async()=>{
+  const x=await setup(),now=Date.now();
+  assert.ok((await x.host.install(connectorManifest('gradescope'),{allowReservedPrefix:true})).ok);
+  await x.service.saveSettings({...x.service.settings,reminders:true,dueLead:60});
+  await x.notify.schedule([{id:'academic#history',at:now+86400000,title:'旧',body:''},{id:'local#keep',at:now+86400000,title:'本机',body:''}]);
+  const courses=[{...course,term:currentAcademicTerm(now)},{...course,id:'gradescope:99',term:'Spring 2001'}];
+  const snap:AcademicSnapshot={provider:'gradescope',syncedAt:now,courses,rules:[],periods:[],semester:'',assignments:courses.map(c=>({id:c.id,courseId:c.id,title:'HW2',provider:'gradescope',status:'not_submitted',url:c.url,dueAt:now+86400000,lateDueAt:null,dueText:''}))};
+  await x.service.importBackground([snap]);
+  assert.deepEqual((await x.notify.pending()).sort(),['academic#gradescope:11','local#keep']);
+  assert.equal(x.entities().filter(e=>e.data.type==='task').length,1);
+});
 test('BB 待完成模块：明确空、结构缺失、非空、拒绝外站',()=>{
   assert.deepEqual(blackboardPending(bbPortal+'您目前没有未完成的作业',ENTRY.blackboard,[bbCourse]),{links:[],empty:true});
   assert.equal(blackboardPending('无模块',ENTRY.blackboard,[bbCourse]),null);

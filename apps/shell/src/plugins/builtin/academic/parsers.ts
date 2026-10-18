@@ -3,6 +3,8 @@ import type { AcademicCourse, Assignment, LessonRule, Period } from './model.ts'
 
 export function gradescopeCourses(html: string, base: string): AcademicCourse[] {
   const rows = new Map<string, AcademicCourse>();
+  const headings=[...html.matchAll(/<(h[1-6]|div)\b([^>]*)>([^<>]*(?:Fall|Spring|Summer|Winter)[^<>]*)<\/\1>/gi)]
+    .filter(m=>m[1].toLowerCase()!=='div'||attr(m[2],'class').split(/\s+/).includes('courseList--term'));
   for (const a of anchors(html, base)) {
     if (new URL(a.url).origin !== new URL(base).origin) continue;
     const match = new URL(a.url).pathname.match(/^\/courses\/(\d+)\/?$/);
@@ -10,10 +12,12 @@ export function gradescopeCourses(html: string, base: string): AcademicCourse[] 
     const id = `gradescope:${match[1]}`;
     const fullName = text(a.html.match(/<(?:h[1-6]|[^>]*class=["'][^"']*(?:courseName|course-name)[^"']*["'])[^>]*>([\s\S]*?)<\//i)?.[1] ?? '') || a.title;
     const termPattern=/(?:Fall|Spring|Summer|Winter)\s+20\d{2}|20\d{2}\s+(?:Fall|Spring|Summer|Winter)/gi;
-    const term=a.title.match(termPattern)?.[0] ?? [...text(html.slice(0,a.index)).matchAll(termPattern)].at(-1)?.[0] ?? '';
-    rows.set(id, { id, title: fullName.slice(0, 200), code: '', provider:'gradescope', url: a.url, term });
+    const heading=headings.filter(h=>h.index!<a.index).at(-1);
+    const term=heading?.[3].match(termPattern)?.[0] ?? a.title.match(termPattern)?.[0] ?? '';
+    // 页面侧栏可能重复同一课程；有明确学期的 Dashboard 卡片优先。
+    if(!rows.has(id)||term)rows.set(id, { id, title: fullName.slice(0, 200), code: '', provider:'gradescope', url: a.url, term });
   }
-  if (!rows.size && !/no courses|not enrolled|courseList|course-list/i.test(html)) throw new Error('未识别 Gradescope 课程列表，保留上次数据');
+  if (!rows.size && !/no (?:active )?courses|not (?:currently )?enrolled/i.test(text(html))) throw new Error('未识别 Gradescope 课程列表，保留上次数据');
   return [...rows.values()];
 }
 export function gradescopeAssignments(html: string, course: AcademicCourse, timezone: string): Assignment[] {
@@ -54,6 +58,26 @@ export function blackboardCourses(html: string, base: string): AcademicCourse[] 
   if (!rows.size) throw new Error('BB 门户没有可识别的课程入口，需检查课程模块');
   return [...rows.values()];
 }
+/** 从真实模块标题定位，避开模块排序控件、总列表及已完成列表里的同名文字。 */
+function blackboardModule(html:string,title:RegExp):string|null {
+  const headings=[...html.matchAll(/<span\b[^>]*class=["'][^"']*\bmoduleTitle\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)];
+  const heading=headings.find(m=>title.test(text(m[1])));
+  if(!heading)return null;
+  const rest=html.slice(heading.index!+heading[0].length);
+  const boundary=[...rest.matchAll(/<div\b[^>]*>/gi)].find(m=>attr(m[0],'class').split(/\s+/).includes('portlet'))?.index;
+  const nextHeading=headings.find(m=>m.index!>heading.index!)?.index;
+  return rest.slice(0,Math.min(boundary??rest.length,nextHeading===undefined?rest.length:nextHeading-heading.index!-heading[0].length));
+}
+export function blackboardCurrentCourses(html:string,base:string):AcademicCourse[] {
+  const block=blackboardModule(html,/未完成课程列表|Uncompleted\s+Course\s+List/i);
+  if(block===null)throw new Error('未识别 BB 未完成课程列表，已保留上次数据，请打开门户课程模块后重试');
+  if(/请等待|正在加载|loading/i.test(text(block)))throw new Error('BB 本学期课程模块尚未加载，请稍后重试');
+  try{return blackboardCourses(block,base);}catch{
+    const lists=[...block.matchAll(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi)].filter(m=>attr(m[1],'class').split(/\s+/).includes('courseListing'));
+    if(/(?:没有|暂无|无)(?:未完成的?|本学期)?课程|no courses/i.test(text(block)) || lists.length>0&&lists.every(m=>!text(m[2])&&!/<a\b/i.test(m[2])))return [];
+    throw new Error('BB 未完成课程列表结构未识别，已保留上次数据');
+  }
+}
 export function blackboardAssignment(html: string, url: string, course: AcademicCourse, fallbackTitle: string): Assignment | null {
   // 目录也可能出现“提交作业”等文字；只有实际作业页才产生作业实体。
   if (!/\/webapps\/assignment\/uploadAssignment(?:\.jsp)?$/i.test(new URL(url).pathname)) return null;
@@ -71,10 +95,8 @@ export function blackboardAssignment(html: string, url: string, course: Academic
 }
 /** 只读取门户的「待完成作业」模块；缺失或结构未知不能当作空列表。 */
 export function blackboardPending(html:string, base:string, courses:AcademicCourse[]): {links:{url:string;title:string;course:AcademicCourse}[];empty:boolean}|null {
-  const title=/<span\b[^>]*class=["'][^"']*moduleTitle[^"']*["'][^>]*>\s*待完成作业\s*<\/span>/i.exec(html);
-  if(!title) return null;
-  const rest=html.slice(title.index+title[0].length);
-  const block=rest.split(/<div\b[^>]*class=["'][^"']*portlet\b/i)[0];
+  const block=blackboardModule(html,/^待完成作业$/);
+  if(block===null) return null;
   const empty=/您目前没有未完成的作业/.test(text(block));
   const links=anchors(block,base).flatMap(a=>{
     const u=new URL(a.url);

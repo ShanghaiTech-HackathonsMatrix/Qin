@@ -49,8 +49,8 @@ export function jsStrings(source: string): string[] {
  * 这里改成只认日期表达式本身：认得出就只留那一段，认不出才退回一个短窗口 ——
  * 无论如何都不把整页塞进界面。
  */
-export function deadlineText(raw: string): string {
-  const value = text(raw);
+/** 一段文本里所有「日期表达式」，按出现位置排好 */
+function deadlineHits(value: string): Array<{ at: number; text: string }> {
   const patterns: RegExp[] = [
     // 带时区的机器时间（BB / Gradescope 的 datetime 属性）
     /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:\s?(?:Z|[+-]\d{2}:?\d{2}))?/,
@@ -61,10 +61,28 @@ export function deadlineText(raw: string): string {
     // 纯日期：2026/10/20
     /20\d{2}\s*[-/]\s*\d{1,2}\s*[-/]\s*\d{1,2}/,
   ];
+  const hits: Array<{ at: number; text: string }> = [];
   for (const re of patterns) {
-    const hit = value.match(re)?.[0];
-    if (hit) return hit.trim();
+    const global = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+    for (const m of value.matchAll(global)) {
+      const at = m.index ?? 0;
+      // 同一个位置会被多条规则同时命中（`2026-10-20 23:59` 也命中纯日期规则），留最长的那个
+      const seen = hits.findIndex((h) => h.at === at);
+      if (seen === -1) hits.push({ at, text: m[0] });
+      else if (m[0].length > hits[seen].text.length) hits[seen].text = m[0];
+    }
   }
+  return hits.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * `pick` 决定取哪一个：黑板上「截止日期」后面只有一段，取第一个就够；
+ * Gradescope 的单元格是一句话拼起来的，得取最后一个（见 `parsers.ts`）。
+ */
+export function deadlineText(raw: string, pick: 'first' | 'last' = 'first'): string {
+  const value = text(raw);
+  const hits = deadlineHits(value);
+  if (hits.length > 0) return (pick === 'last' ? hits[hits.length - 1] : hits[0]).text.trim();
   return value.length > 40 ? `${value.slice(0, 40).trimEnd()}…` : value;
 }
 

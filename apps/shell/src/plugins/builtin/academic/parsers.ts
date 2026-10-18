@@ -35,8 +35,14 @@ export function gradescopeAssignments(html: string, course: AcademicCourse, time
     const lateTag = timeTags.find(m => /late/i.test(attr(m[0],'class')));
     const times = timeTags.filter(m => !/releaseDate/i.test(attr(m[0],'class'))).map(m => decode(m[2]));
     const dueCellText = text(dueCell);
-    // 表格单元格里也可能有别的字；「平台原文」只留日期那一段
-    const dueText = deadlineText(dueCellText);
+    /*
+      Gradescope 的截止单元格是一整句拼起来的，实测长这样：
+        `5 days, 14 seconds left  Oct 13 at 8:00PM  Oct 22 at 11:59PM  Late Due Date: Oct 22 at 11:59PM`
+      第一个日期是**发布**时间，最后一段是**迟交**截止 —— 取第一个会显示成发布日，
+      全取下来就是整句。所以先切掉迟交那段，再取剩下最后一个日期，那才是截止。
+    */
+    const beforeLate = deadlineText(dueCellText.replace(/Late\s+Due\s*Date[\s\S]*$/i, ''), 'last');
+    const dueText = beforeLate !== '' ? beforeLate : deadlineText(dueCellText, 'last');
     const status = /\b(?:not\s+submitted|no\s+submission|missing)\b/i.test(words) ? 'not_submitted' :
       /\bgraded\b|\d+(?:\.\d+)?\s*\/\s*\d/.test(words) ? 'graded' : /\b(?:submitted|submission\s+received|resubmitted)\b/i.test(words) ? 'submitted' : 'unknown';
     rows.set(assignmentId, { id: `${course.id}:assignment:${assignmentId}`, courseId: course.id, title: a.title.slice(0, 200),

@@ -86,6 +86,25 @@ test('deadlineText：中英文、机器时间、纯日期都只截日期那一�
   const out=deadlineText(long);
   assert.ok(out.length<=41,'认不出日期时也不能把整页塞进界面');
   assert.equal(deadlineText(''),'');
+  // 一句话里好几个日期：pick 决定取哪个
+  const cell='5 days, 14 seconds left Oct 13 at 8:00PM Oct 22 at 11:59PM';
+  assert.equal(deadlineText(cell),'Oct 13 at 8:00PM');
+  assert.equal(deadlineText(cell,'last'),'Oct 22 at 11:59PM');
+});
+
+test('Gradescope 截止单元格：倒计时、发布日、迟交日都不进「平台原文」',()=>{
+  /*
+    这串是从真机同步回来的原样文本。发布日是 Oct 13，截止是 Oct 22，
+    最后还有一段迟交截止。界面上的「平台原文」原来显示的是整句。
+  */
+  const cell='<span class="submissionTimeChart--releaseDate" datetime="2026-10-13 08:00:00 +0800"></span>'
+    +'<span class="submissionTimeChart--dueDate" datetime="2026-10-22 23:59:00 +0800"></span>'
+    +'5 days, 14 seconds left Oct 13 at 8:00PM Oct 22 at 11:59PM Late Due Date: Oct 22 at 11:59PM';
+  const html=`<table><tr><th><a href="/courses/11/assignments/3">HW2_p2</a></th><td class="dueDate">${cell}</td></tr></table>`;
+  const [a]=gradescopeAssignments(html,course,'');
+  assert.equal(a.dueText,'Oct 22 at 11:59PM');
+  assert.equal(a.dueAt,Date.parse('2026-10-22T23:59:00+08:00'));
+  assert.ok(!/left|release|Late/i.test(a.dueText),'倒计时和迟交段不该混进平台原文');
 });
 test('教务动态参数、断续周、周末及不连续节次；错误页明确失败',()=>{
   assert.equal(eamsSelection(entry,'').body,'setting.kind=std&startWeek=&semester.id=100&ids=999');

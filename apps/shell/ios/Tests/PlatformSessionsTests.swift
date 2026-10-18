@@ -3,6 +3,46 @@ import Capacitor
 @testable import App
 
 final class PlatformSessionsTests: XCTestCase {
+    func testSessionCookieEncodingKeepsSessionSecurityAndPath() throws {
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.name: "SESSION_TEST", .value: "synthetic",
+            .domain: "example.invalid", .path: "/webapps", .secure: "TRUE",
+            HTTPCookiePropertyKey("HttpOnly"): "TRUE"]))
+        let restored = try XCTUnwrap(PlatformSessionCookieVault.decode(PlatformSessionCookieVault.encode([cookie])).first)
+        XCTAssertEqual(restored.name, cookie.name)
+        XCTAssertEqual(restored.value, cookie.value)
+        XCTAssertEqual(restored.domain, cookie.domain)
+        XCTAssertEqual(restored.path, cookie.path)
+        XCTAssertTrue(restored.isSecure)
+        XCTAssertEqual(restored.isHTTPOnly, cookie.isHTTPOnly)
+        XCTAssertNil(restored.expiresDate)
+    }
+    func testSessionCookieDecodeDropsExpiredCookies() throws {
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.name: "EXPIRED_TEST", .value: "synthetic",
+            .domain: "example.invalid", .path: "/", .expires: Date(timeIntervalSince1970: 100)]))
+        let data = try PlatformSessionCookieVault.encode([cookie])
+        XCTAssertTrue(try PlatformSessionCookieVault.decode(data, now: Date(timeIntervalSince1970: 200)).isEmpty)
+    }
+    func testRestoringMaxAgeCookieDoesNotExtendItsExpiry() throws {
+        let cookie = try XCTUnwrap(HTTPCookie.cookies(withResponseHeaderFields:
+            ["Set-Cookie": "MAXAGE_TEST=synthetic; Max-Age=60; Path=/; Secure"],
+            for: URL(string: "https://example.invalid/")!).first)
+        let expiry = try XCTUnwrap(cookie.expiresDate)
+        let data = try PlatformSessionCookieVault.encode([cookie])
+        let restored = try XCTUnwrap(PlatformSessionCookieVault.decode(data).first)
+        XCTAssertEqual(try XCTUnwrap(restored.expiresDate).timeIntervalSince1970, expiry.timeIntervalSince1970, accuracy: 1)
+        XCTAssertTrue(try PlatformSessionCookieVault.decode(data, now: expiry.addingTimeInterval(1)).isEmpty)
+    }
+    func testKeychainSessionSurvivesReadAndExplicitClearRemovesIt() throws {
+        let provider = "native-test-" + UUID().uuidString
+        defer { try? PlatformSessionCookieVault.clear(provider) }
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.name: "SESSION_TEST", .value: "synthetic",
+            .domain: "example.invalid", .path: "/"]))
+        try PlatformSessionCookieVault.save([cookie], provider: provider)
+        XCTAssertEqual(try PlatformSessionCookieVault.load(provider).map(\.value), ["synthetic"])
+        XCTAssertTrue(try PlatformSessionCookieVault.load(provider + "-other").isEmpty)
+        try PlatformSessionCookieVault.clear(provider)
+        XCTAssertTrue(try PlatformSessionCookieVault.load(provider).isEmpty)
+    }
     func testSchoolLoginUpgradePreservesServiceAndUsesSecureCookieSelection() throws {
         let raw = "http://ids.shanghaitech.edu.cn:80/authserver/login?service=https%3A%2F%2Felearning.shanghaitech.edu.cn%3A8443%2Fwebapps%2Flogin%3Fx%3D1%26y%3D2"
         var request = URLRequest(url: URL(string: raw)!)

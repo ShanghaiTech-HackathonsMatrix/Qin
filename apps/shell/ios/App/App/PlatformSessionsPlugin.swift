@@ -40,7 +40,7 @@ public class PlatformSessionsPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTask
             guard self.activeLogin == nil, presenter.presentedViewController == nil else {
                 call.reject("已有窗口打开，请先完成或取消"); return
             }
-            let controller = PlatformLoginController(url: url, store: PlatformSessionTransport.store(provider)) { completed in
+            let controller = PlatformLoginController(url: url, provider: provider, store: PlatformSessionTransport.store(provider)) { completed in
                 self.activeLogin = nil
                 call.resolve(["completed": completed])
             }
@@ -53,6 +53,9 @@ public class PlatformSessionsPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTask
     @objc func clear(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard self.activeLogin == nil else { call.reject("请先关闭平台登录窗口"); return }
+            do {
+                for provider in PlatformSessionTransport.entries.keys { try PlatformSessionCookieVault.clear(provider) }
+            } catch { call.reject(error.localizedDescription); return }
             let group = DispatchGroup()
             for provider in PlatformSessionTransport.entries.keys {
                 group.enter()
@@ -116,6 +119,7 @@ enum PlatformLoginNavigation {
 final class PlatformLoginController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let webView: WKWebView
     private let initialURL: URL
+    private let provider: String
     private let completion: (Bool) -> Void
     private let status = UILabel()
     private var stack: UIStackView!
@@ -123,10 +127,10 @@ final class PlatformLoginController: UIViewController, WKNavigationDelegate, WKU
     private var blockedMessage: String?
     private var navigationTimeout: DispatchWorkItem?
     private var currentWebView: WKWebView { popups.last ?? webView }
-    init(url: URL, store: WKWebsiteDataStore, completion: @escaping (Bool) -> Void) {
+    init(url: URL, provider: String, store: WKWebsiteDataStore, completion: @escaping (Bool) -> Void) {
         let config = WKWebViewConfiguration(); config.websiteDataStore = store
         self.webView = WKWebView(frame: .zero, configuration: config)
-        self.initialURL = url; self.completion = completion
+        self.initialURL = url; self.provider = provider; self.completion = completion
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -149,7 +153,13 @@ final class PlatformLoginController: UIViewController, WKNavigationDelegate, WKU
         webView.load(URLRequest(url: initialURL))
     }
     @objc private func cancel() { dismiss(animated: true) { self.completion(false) } }
-    @objc private func done() { dismiss(animated: true) { self.completion(true) } }
+    @objc private func done() {
+        status.text = "正在安全保存本机会话…"
+        PlatformSessionTransport.capture(provider) { error in
+            if let error { self.status.text = error.localizedDescription; return }
+            self.dismiss(animated: true) { self.completion(true) }
+        }
+    }
     @objc private func retry() {
         blockedMessage = nil
         if currentWebView.url == nil { currentWebView.load(URLRequest(url: initialURL)) }

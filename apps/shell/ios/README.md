@@ -6,7 +6,7 @@
 
 **项目说明请优先引用 [iOS 已实现功能与验收清单](../../../docs/ios-features.md)**，包含功能表、用户验收口径及不能宣称的能力。更新日期：2026-10-18。
 
-- 官方网页登录：Gradescope、Blackboard、教务。平台使用独立持久化 WebKit 会话，Cookie 不暴露给 JavaScript；BB 统一认证跳转及登录导航中断已修复。
+- 官方网页登录：Gradescope、Blackboard、教务。平台使用独立持久化 WebKit 会话，Cookie 不暴露给 JavaScript；登录完成和原生请求后将会话保存至本机钥匙串，WebKit 会话为空时恢复，保留原到期时间；BB 统一认证跳转及登录导航中断已修复。
 - App 复用课程、DDL、课表、日程和本学期过滤，前端资源本地打包；iOS 顶栏使用单色图标。
 - DDL 与今日课程两个 Widget，提供小、中、大尺寸，可由用户加入系统智能叠放。DDL 单行显示课程、标题与截止时间；今日下一节课在开课 30 分钟后切换。
 - 组件正文单击留在桌面，无单独刷新图标。共享 LiveActivityIntent 在 App 后台进程直接发起平台联网检查：JavaScriptCore 执行离线打包的同一套连接器，URLSession 复用各平台 WebKit 会话，不依赖前台 React 轮询。失败保留对应平台缓存。
@@ -39,10 +39,10 @@ npm run sync:ios -w matrix-shell
 
 ```sh
 xcodebuild -project App/App.xcodeproj -scheme MatrixNativeTests \
-  -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO test
+  -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
 ```
 
-当前 16 项原生测试通过，新增覆盖 JavaScriptCore 实际执行打包连接器、异步请求桥、超时退出和 Foundation URL 解析。模拟器名称以本机安装的设备为准。
+当前 20 项原生测试通过，覆盖 JavaScriptCore 实际执行打包连接器、异步请求桥、超时退出、Foundation URL 解析，以及钥匙串实际读写、平台隔离、显式清除和 Cookie 到期恢复。钥匙串测试需要签名的测试宿主；模拟器可使用上述 ad hoc 签名。模拟器名称以本机安装的设备为准。
 
 - 组件 UI 测试：运行 `ruby configure_widget_ui_tests.rb` 后选择 MatrixWidgetUITests。测试要求已添加 DDL 组件，设备解锁并保持连接；找不到刷新按钮则失败，不以点击普通容器代替。
 - 提交事件、组件数据与后台运行时测试纳入 `npm run check`；`npm run test:ios-widget -w matrix-shell` 会先打包运行时再验证三平台、单站失败保留、离线保留、重复提交去重及无浏览器执行。测试使用合成页面，不等于真实平台验收。公开记录不包含真实平台页面、Cookie、账号、设备标识或数据库。

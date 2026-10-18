@@ -79,6 +79,7 @@ final class MatrixWidgetNativeEngine {
                   var options = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             options["provider"] = provider
             options["timeout"] = 12000.0
+            options["widgetBackground"] = true
             let operation = self.transport(options) { [weak self] result in
                 guard let self else { return }
                 self.queue.async {

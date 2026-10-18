@@ -1331,6 +1331,12 @@ const TAB_ICONS = {
             ＋ 新建
           </button>
         )}
+        {/* 日程页和任务页用同一颗按钮、同一个位置 —— 新建这件事在两页长得一样 */}
+        {tab === 'courses' && (
+          <button className="btn btn--primary btn--sm" onClick={() => setPersonalEditor({ event: null })}>
+            ＋ 新建
+          </button>
+        )}
       </div>
 
       <div className="app__body" data-page={tab}>
@@ -1550,7 +1556,6 @@ const TAB_ICONS = {
             onResetData={() => void resetAllData()}
           />
         )}
-        {tab==='courses'&&<button className="btn btn--primary" onClick={()=>setPersonalEditor({event:null})}>＋ 自定义日程</button>}
         {personalEditor&&<PersonalEventSheet event={personalEditor.event} service={p.personal} close={()=>setPersonalEditor(null)}/>}
         {pluginPage&&<div className="sheet-backdrop" onClick={()=>setPluginPage(null)}><section className="sheet" onClick={e=>e.stopPropagation()}><div className="sheet__head"><h2>插件页面</h2><button className="btn" onClick={()=>setPluginPage(null)}>返回</button></div>{p.plugins.registry.get(pluginPage.pluginId)?.state==='active'&&p.plugins.registry.get(pluginPage.pluginId)?.manifest.contributes?.views?.some(v=>v.id===pluginPage.viewId&&v.kind==='page')?<PageView key={`${pluginPage.pluginId}/${pluginPage.viewId}`} host={p.plugins} {...pluginPage} onNavigate={goTab} onDataChanged={()=>void reload()}/>:<p>页面不存在或插件已停用</p>}</section></div>}
         {lessonId&&<LessonSheet id={lessonId} service={p.academic} close={()=>setLessonId(null)}/>}

@@ -682,10 +682,26 @@ body, .app { background: #f7f7f3; color: #111; }
   font-size: calc(10px * var(--font-base) * var(--font-scale)); }
 .tt__lesson small { display: block; line-height: 1.25; color: #555; overflow-wrap: anywhere;
   font-size: calc(8.5px * var(--font-base) * var(--font-scale)); }
-/* 折叠项也是 .conn，别让默认三角把图标顶歪，和上面几个平台块对齐 */
+/*
+  折叠项也是 .conn：默认三角会把图标顶歪，和上面几个平台块对不齐，去掉。
+  展开状态由右边的 ▾ 翻转表示，和「已同步 / 未同步」那枚徽标并排。
+*/
 details.conn > summary { list-style: none; cursor: pointer; }
 details.conn > summary::-webkit-details-marker { display: none; }
-details.conn[open] > summary .conn__status { border-color: #111; font-weight: 800; }
+details.conn[open] > summary { margin-bottom: 13px; }
+.conn__chev { flex: none; color: #8d8d87; line-height: 1;
+  font-size: calc(11px * var(--font-base) * var(--font-scale)); transition: transform .15s; }
+details.conn[open] > summary .conn__chev { transform: rotate(180deg); }
+/* 折叠块里的表单：和 .conn__field 同一套输入框，两列并排 */
+.conn__grid { display: grid; gap: 11px; }
+.conn__pair { display: grid; gap: 4px; }
+.conn__pair > span { font-size: calc(11px * var(--font-base) * var(--font-scale)); color: #555; }
+.conn__pair-inputs { display: flex; align-items: center; gap: 7px; }
+.conn__pair-inputs > span { color: #8d8d87; flex: none; }
+.conn__pair-inputs input { flex: 1 1 0; min-width: 0; font: inherit;
+  font-size: calc(13px * var(--font-base) * var(--font-scale)); color: #111;
+  background: #f7f7f3; border: 1.5px solid #111; border-radius: 7px; padding: 8px 10px; outline: none; }
+.conn__pair-inputs input:focus { background: #fff; box-shadow: 0 0 0 2px #111 inset; }
 .tt__legend { margin: 0; text-align: right; color: #8d8d87;
   font-size: calc(10.5px * var(--font-base) * var(--font-scale)); }
 /*

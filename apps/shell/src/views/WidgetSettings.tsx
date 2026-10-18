@@ -6,8 +6,8 @@ export default function WidgetSettings({platform}:{platform:Platform}){
   const [state,setState]=useState({enabled:true,status:'正在读取状态…'}),[note,setNote]=useState(''),[busy,setBusy]=useState(false);
   useEffect(()=>{if(!widgetAvailable())return;const read=()=>void AndroidWidget.state().then(setState).catch(e=>setNote(String(e)));read();const timer=setInterval(read,5000);return()=>clearInterval(timer);},[]);
   const run=async(fn:()=>Promise<unknown>,text:string)=>{setBusy(true);try{await fn();setNote(text);setState(await AndroidWidget.state());}catch(e){setNote(String(e));}finally{setBusy(false);}};
-  if(!widgetAvailable())return <div className="card"><h3>桌面挂件</h3><p>本轮支持 Android；iOS 稍后接入。</p></div>;
-  return <div className="card stack"><h3>桌面挂件</h3>
+  if(!widgetAvailable())return <div className="card"><p>本轮支持 Android；iOS 稍后接入。</p></div>;
+  return <div className="card stack">
     <p>上滑看今日课程，下滑看待办。放大挂件可显示更多条目。</p>
     <p className="faint">切页时请滑动到底，短距离滑动可能停在两页之间。</p>
     <p>单击联网刷新 BB / Gradescope。双击任务打开对应网页，无链接时打开详情；双击课程打开课表。</p>

@@ -270,6 +270,45 @@ function ReminderSettings({academic:s}:{academic:AcademicService}){
   </div>;
 }
 
+/**
+ * 四个分区的图标。
+ *
+ * 和底栏 `TAB_ICONS` 同一套画法：24 网格、只描边、圆头圆角、1.7 线宽，
+ * 所以放在同一页里不会一个像图标库、一个像贴纸。都靠线条本身说明意思，
+ * 不用色块也不用填充。
+ */
+const SETTINGS_ICONS = {
+  // 一个人：账号
+  account: (
+    <>
+      <circle cx="12" cy="8.4" r="3.6" />
+      <path d="M4.9 19.6c1.3-3.5 3.9-5.3 7.1-5.3s5.8 1.8 7.1 5.3" />
+    </>
+  ),
+  // 两条滑杆各带一个旋钮：通用设置
+  general: (
+    <>
+      <path d="M4 8.5h8.2M17.6 8.5H20M4 15.5h2.4M11.8 15.5H20" />
+      <circle cx="15.1" cy="8.5" r="2.2" />
+      <circle cx="9.3" cy="15.5" r="2.2" />
+    </>
+  ),
+  // 插头带两根脚：插件
+  plugins: (
+    <>
+      <path d="M9.6 3.6v4.1M14.4 3.6v4.1" />
+      <path d="M5.2 7.7h13.6v4.1a6.8 6.8 0 0 1-13.6 0V7.7z" />
+      <path d="M12 18.6v1.9" />
+    </>
+  ),
+  // 一条心跳线：运行与关于
+  runtime: (
+    <>
+      <path d="M3.4 12h3.9l2.3-5.6 3.5 11.2 2.3-5.6h5.2" />
+    </>
+  ),
+} as const;
+
 export default function SettingsView({ platform, settings, onChange, onOpenDebug, onResetData,onNavigate,onAddHome }: Props) {
   const [page,setPage]=useState<'root'|'account'|'general'|'plugins'|'runtime'>('root');
   const names={account:'用户与账号',general:'通用设置',plugins:'插件管理',runtime:'运行与关于'};
@@ -291,7 +330,22 @@ export default function SettingsView({ platform, settings, onChange, onOpenDebug
   return (
     <>
       {page==='root'
-        ? <div className="settings-menu">{(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}><strong>{names[key]}</strong><span>›</span></button>)}</div>
+        ? <>
+            {/* 和其它页一样用 .quest-section__head 起标题，不另造一套页头 */}
+            <div className="quest-section__head">
+              <h2>设置</h2>
+              <span className="quest-section__ornament">账号 · 外观 · 运行</span>
+            </div>
+            <div className="settings-menu">
+              {(Object.keys(names) as (keyof typeof names)[]).map(key=><button className="settings-menu__item" key={key} onClick={()=>setPage(key)}>
+                <span className="settings-menu__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{SETTINGS_ICONS[key]}</svg>
+                </span>
+                <strong>{names[key]}</strong>
+                <span className="settings-menu__chev" aria-hidden="true">›</span>
+              </button>)}
+            </div>
+          </>
         : <button className="btn" onClick={()=>setPage('root')}>‹ 设置 · {names[page]}</button>}
 
       {page==='account'&&<>

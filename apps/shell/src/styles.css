@@ -1303,7 +1303,16 @@ button.log-row:active { background: #f0f0ec; }
 .app[data-large-font='true'] .home-slot { grid-column:1 / -1; }
 @media (max-width:380px) { .home-grid[data-mode='grid'] { grid-template-columns:1fr; } .home-slot { grid-column:1 / -1; } }
 .settings-menu { display:grid; gap:0; border:1.5px solid #111; border-radius:10px; overflow:hidden; background:#fff; }
-.settings-menu button { text-align:left; padding:20px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:0; border-bottom:1px solid #ddd; background:transparent; cursor:pointer; min-width:0; }
+/*
+  菜单项：图标 + 名称 + ›。
+  图标装在一个手绘感的不圆里（四角半径各不相同），和全站卡片的不规则圆角同源，
+  这样它看着像「贴上去的一枚章」，而不是图标库里拖出来的一个。
+*/
+.settings-menu button { text-align:left; padding:14px 14px; display:flex; align-items:center; justify-content:flex-start; gap:12px; border:0; border-bottom:1px solid #ddd; background:transparent; cursor:pointer; min-width:0; }
+.settings-menu__icon { flex:none; width:34px; height:34px; display:grid; place-items:center; color:#111;
+  border:1.5px solid #111; border-radius:52% 48% 46% 54% / 48% 52% 48% 52%; }
+.settings-menu__icon svg { width:19px; height:19px; display:block; }
+.settings-menu__chev { flex:none; margin-left:auto; color:#8d8d87; font-size:calc(15px * var(--font-base) * var(--font-scale)); line-height:1; }
 .settings-menu button:last-child { border-bottom:0; }
 .settings-menu button:active { background:#f0f0ec; }
 .settings-menu button strong { font-size:calc(15px * var(--font-base) * var(--font-scale)); }

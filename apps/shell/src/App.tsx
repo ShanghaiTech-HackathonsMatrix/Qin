@@ -85,6 +85,13 @@ type Boot =
 export default function App() {
   const [personalEditor,setPersonalEditor]=useState<{event:PersonalEvent|null}|null>(null);
   const [lessonId,setLessonId]=useState<string|null>(null);
+  /**
+   * 首页「本周日程」点某一天 → 日程页要定位到的那一天。
+   *
+   * `nonce` 让「同一天连点两次」也能重新滚一次；离开日程页时清空，
+   * 否则下次再进日程页会莫名其妙又跳回那一天的旧位置。
+   */
+  const [scheduleFocus, setScheduleFocus] = useState<{ key: string; label: string; nonce: number } | null>(null);
   const [boot, setBoot] = useState<Boot>({ status: 'loading' });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -1086,6 +1093,10 @@ const TAB_ICONS = {
     return scheduleEntries.filter((entry) => entry.at >= from && entry.at <= to);
   }, [scheduleEntries, nowMs]);
   const scheduleDays = useMemo(() => buildScheduleDays(scheduleWindow, nowMs), [scheduleWindow, nowMs]);
+  // 离开日程页就把「要点到哪一天」清掉：留着的话下次进日程页会莫名其妙又跳过去
+  useEffect(() => {
+    if (tab !== 'courses') setScheduleFocus(null);
+  }, [tab]);
   const today = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
 
   // 布局文档的读写口。用户「这一页摆什么」的真相在 KV 里，不在代码里
@@ -1237,7 +1248,10 @@ const TAB_ICONS = {
               <h2>本周</h2>
               <span className="quest-section__ornament">可视化</span>
             </div>
-            <WeekStrip entries={scheduleEntries} now={nowMs} onPickDay={() => setTab('courses')} />
+            <WeekStrip entries={scheduleEntries} now={nowMs} onPickDay={(key, label) => {
+              setScheduleFocus((prev) => ({ key, label, nonce: (prev?.nonce ?? 0) + 1 }));
+              setTab('courses');
+            }} />
           </section>
         );
 
@@ -1563,6 +1577,7 @@ const TAB_ICONS = {
             <div className="quest-section__head quest-section__head--spaced"><h2>每日日程</h2><span className="quest-section__ornament">{hasAcademic ? '未来两周' : DEMO_MODE ? '演示课表' : '按天分组'}</span></div>
             <ScheduleView
               days={scheduleDays}
+              focus={scheduleFocus}
               emptyText={DEMO_MODE
                 ? '演示数据里这段时间还没有安排。'
                 : hasAcademic

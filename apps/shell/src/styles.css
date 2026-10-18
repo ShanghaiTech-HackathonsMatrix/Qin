@@ -554,7 +554,29 @@ body, .app { background: #f7f7f3; color: #111; }
 .demo-list--spaced { margin-top: 24px; }
 /* ---------------------------------------------------------- 每日日程 */
 .schedule { display: grid; gap: 18px; }
-.schedule-day { display: grid; gap: 9px; }
+.schedule-day { display: grid; gap: 9px; scroll-margin-top: 10px; }
+/*
+  从首页「本周日程」点某一天跳过来时的落点提示：
+  画一圈临时边框再淡出。用描边而不是改背景 —— 背景一变，里面的白卡片就糊了。
+*/
+.schedule-day[data-flash='true'] { position: relative; }
+.schedule-day[data-flash='true']::before {
+  content: ''; position: absolute; inset: -9px -11px; pointer-events: none;
+  border: 1.5px solid #111; border-radius: 10px 8px 11px 9px;
+  animation: schedule-flash 1.4s ease-out forwards;
+}
+@keyframes schedule-flash {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  72% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schedule-day[data-flash='true']::before { animation: none; opacity: 1; }
+}
+/* 点的那天没有任何条目：明说一句，而不是滚到别的日子装作找到了 */
+.schedule-miss { margin: 0; padding: 9px 11px; border: 1.5px dashed #111; border-radius: 9px 7px 10px 8px;
+  font-size: calc(12px * var(--font-base) * var(--font-scale)); }
 .schedule-day__head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 7px; border-bottom: 1.5px solid #111; }
 .schedule-day__head h2 { margin: 0; font-size: calc(17px * var(--font-base) * var(--font-scale)); }
 .schedule-day__date { color: #555; font-size: calc(11px * var(--font-base) * var(--font-scale)); }
@@ -1362,3 +1384,4 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .confirm-backdrop { z-index:10000; }
 .confirm-dialog { max-width:480px; margin:auto; padding:22px; }
 .confirm-dialog p { white-space:pre-wrap; line-height:1.6; }
+

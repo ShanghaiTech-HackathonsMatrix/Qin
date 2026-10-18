@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { dayKeyOf } from '../app/date-keys.ts';
 
@@ -108,6 +108,13 @@ interface Props {
   /** 空态里的行动按钮：没连平台时给一个直接去登录的出口 */
   emptyAction?: { label: string; onClick: () => void };
   onOpenEntry?: (entry: ScheduleEntry) => void;
+  /**
+   * 从首页「本周日程」点某一天跳过来时带上它：滚到那一天并闪一下边框。
+   *
+   * `nonce` 不能省 —— 只比 `key` 的话，同一天连点第二次状态没变化，
+   * effect 不重跑，用户会觉得「点了没反应」。nonce 一变就重新定位一次。
+   */
+  focus?: { key: string; label: string; nonce: number } | null;
 }
 
 /**
@@ -118,8 +125,34 @@ interface Props {
  * 但**没有**照搬它的事件筛选器与查询层：Qin 这一版的数据来自
  * 核心任务 + 插件槽，不是 `timeline.list` 那个查询端口。
  */
-export default function ScheduleView({ days, emptyText, emptyAction, onOpenEntry }: Props) {
+export default function ScheduleView({ days, emptyText, emptyAction, onOpenEntry, focus }: Props) {
   const total = useMemo(() => days.reduce((n, d) => n + d.items.length, 0), [days]);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** 刚跳过来的是哪一天 —— 用来给那一段画一圈临时边框 */
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  /** 点的那天没有条目时，说清楚是哪天没安排，而不是默默滚到别的一天 */
+  const [missLabel, setMissLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (focus === undefined || focus === null) return;
+    const list = listRef.current;
+    if (list === null) return; // 整页空态：那里本来就写着「这段时间没有安排」
+
+    const target = list.querySelector<HTMLElement>(`[data-day="${focus.key}"]`);
+    if (target === null) {
+      setMissLabel(focus.label);
+      setFlashKey(null);
+      // 滚到列表开头，让这句说明留在视野里
+      list.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return;
+    }
+
+    setMissLabel(null);
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setFlashKey(focus.key);
+    const timer = setTimeout(() => setFlashKey(null), 1400);
+    return () => clearTimeout(timer);
+  }, [focus]);
 
   if (total === 0) {
     return (
@@ -140,9 +173,15 @@ export default function ScheduleView({ days, emptyText, emptyAction, onOpenEntry
   }
 
   return (
-    <div className="schedule">
+    <div className="schedule" ref={listRef}>
+      {missLabel !== null && <p className="schedule-miss">{missLabel} · 这天没有安排</p>}
       {days.map((day) => (
-        <section className="schedule-day" key={day.key}>
+        <section
+          className="schedule-day"
+          key={day.key}
+          data-day={day.key}
+          data-flash={flashKey === day.key ? 'true' : undefined}
+        >
           <div className="schedule-day__head">
             <h2>{day.label}</h2>
             <span className="schedule-day__date">{day.date}</span>

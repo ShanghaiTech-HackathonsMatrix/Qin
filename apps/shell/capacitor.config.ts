@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'dev.matrix.shell',
-  appName: 'Matrix',
+  appName: '秦QIN',
   webDir: 'dist',
   android: {
     allowMixedContent: false,

@@ -1,4 +1,5 @@
 import {confirmAction} from './ConfirmDialog';
+import CloseButton from './CloseButton';
 import {useState} from 'react';
 import type {PersonalEvent,PersonalSchedule} from '../core/personal-schedule';
 const stamp=(t:number)=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
@@ -14,7 +15,7 @@ export default function PersonalEventSheet({event,service,close}:{event:Personal
     if(allDay){const a=new Date(startAt),b=new Date(endAt);a.setHours(0,0,0,0);b.setHours(0,0,0,0);b.setDate(b.getDate()+1);startAt=a.getTime();endAt=b.getTime();}
     if(lead!=='')await service.requestReminderPermission();
     await service.put({id:event?.id??crypto.randomUUID(),title,startAt,endAt,allDay,location,note,repeat,until:new Date(`${until}T23:59:59`).getTime(),remindMinutes:lead===''?null:Number(lead)});
-  });}}><div className="row row--between"><h3>{event?'编辑日程':'新建日程'}</h3><button type="button" className="btn" onClick={close}>关闭</button></div>
+  });}}><div className="row row--between"><h3>{event?'编辑日程':'新建日程'}</h3><CloseButton onClick={close} /></div>
     <label>名称<input className="field" required maxLength={200} value={title} onChange={e=>setTitle(e.target.value)}/></label>
     <label><input type="checkbox" checked={allDay} onChange={e=>setAllDay(e.target.checked)}/> 全天（结束日期当天也包含在内）</label>
     <label>开始<input className="field" type="datetime-local" required value={start} onChange={e=>setStart(e.target.value)}/></label><label>结束<input className="field" type="datetime-local" required value={end} onChange={e=>setEnd(e.target.value)}/></label>

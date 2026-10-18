@@ -1,4 +1,4 @@
-import { anchors, attr, decode, jsStrings, parseDeadline, text } from './html.ts';
+import { anchors, attr, deadlineText, decode, jsStrings, parseDeadline, text } from './html.ts';
 import type { AcademicCourse, Assignment, LessonRule, Period } from './model.ts';
 
 export function gradescopeCourses(html: string, base: string): AcademicCourse[] {
@@ -34,12 +34,14 @@ export function gradescopeAssignments(html: string, course: AcademicCourse, time
     const dueTag = timeTags.find(m => /(?:^|\s)[^\s]*--dueDate(?:\s|$)/i.test(attr(m[0],'class')));
     const lateTag = timeTags.find(m => /late/i.test(attr(m[0],'class')));
     const times = timeTags.filter(m => !/releaseDate/i.test(attr(m[0],'class'))).map(m => decode(m[2]));
-    const dueText = text(dueCell);
+    const dueCellText = text(dueCell);
+    // 表格单元格里也可能有别的字；「平台原文」只留日期那一段
+    const dueText = deadlineText(dueCellText);
     const status = /\b(?:not\s+submitted|no\s+submission|missing)\b/i.test(words) ? 'not_submitted' :
       /\bgraded\b|\d+(?:\.\d+)?\s*\/\s*\d/.test(words) ? 'graded' : /\b(?:submitted|submission\s+received|resubmitted)\b/i.test(words) ? 'submitted' : 'unknown';
     rows.set(assignmentId, { id: `${course.id}:assignment:${assignmentId}`, courseId: course.id, title: a.title.slice(0, 200),
       url: `${new URL(course.url).origin}/courses/${course.id.split(':')[1]}/assignments/${assignmentId}`, provider:'gradescope',
-      dueAt: parseDeadline(dueTag?.[2] ?? times[0] ?? dueText, course.term, timezone),
+      dueAt: parseDeadline(dueTag?.[2] ?? times[0] ?? dueCellText, course.term, timezone),
       lateDueAt: lateTag || times[1] ? parseDeadline(lateTag?.[2] ?? times[1], course.term, timezone) : null, dueText, status });
   }
   if (!rows.size && !/assignment(s|[-_]list|[-_]table)|no assignments/i.test(html)) throw new Error('未识别 Gradescope 作业表，保留上次数据');
@@ -82,7 +84,14 @@ export function blackboardAssignment(html: string, url: string, course: Academic
   // 目录也可能出现“提交作业”等文字；只有实际作业页才产生作业实体。
   if (!/\/webapps\/assignment\/uploadAssignment(?:\.jsp)?$/i.test(new URL(url).pathname)) return null;
   const words = text(html);
-  const due = words.match(/(?:截止日期|到期日期|Due Date)\s*[:：]?\s*(.{0,100})/i)?.[1] ?? '';
+  /*
+    先从整页文本里取一段窗口，再交给 `deadlineText` 只留日期那一段。
+    两步是分开的：`parseDeadline` 要的是窗口原文（它自己会找日期），
+    而界面上显示的「平台原文」必须干净 —— 这两件事原来共用同一个 100 字截断，
+    于是日期后面那半段页面内容被当成「原文」显示了出来。
+  */
+  const dueRaw = words.match(/(?:截止日期|到期日期|Due Date)\s*[:：]?\s*(.{0,100})/i)?.[1] ?? '';
+  const due = deadlineText(dueRaw);
   if (!/截止日期|Due Date|提交作业|Upload Assignment|作业信息|Assignment Information/i.test(words)) return null;
   const u = new URL(url), nativeId = u.searchParams.get('content_id') ?? u.searchParams.get('assign_group_id');
   if (!nativeId) return null;
@@ -90,7 +99,7 @@ export function blackboardAssignment(html: string, url: string, course: Academic
   const heading = headings.find(m=>attr(m[1],'id')==='pageTitleHeader') ?? headings.find(m=>!/(?:hideoff|hideFromQuickLinks)/i.test(m[1])&&text(m[2]));
   const title = (heading ? text(heading[2]) : fallbackTitle).replace(/^(?:复查提交历史记录|上传作业|提交作业|Review Submission History|Upload Assignment)\s*[:：]\s*/i,'');
   return { id:`${course.id}:assignment:${nativeId}`, courseId:course.id, title:title.slice(0,200),
-    url, provider:'blackboard', dueAt:parseDeadline(due,course.term,'Asia/Shanghai'), lateDueAt:null, dueText:due,
+    url, provider:'blackboard', dueAt:parseDeadline(dueRaw,course.term,'Asia/Shanghai'), lateDueAt:null, dueText:due,
     status:/未提交|尚未提交|not submitted/i.test(words) ? 'not_submitted' : /重新提交|已提交|提交(?:历史)?记录|已上交|submission history/i.test(words) ? 'submitted' : 'unknown' };
 }
 /** 只读取门户的「待完成作业」模块；缺失或结构未知不能当作空列表。 */

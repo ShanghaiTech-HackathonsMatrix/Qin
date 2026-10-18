@@ -3,7 +3,10 @@
  *
  * 刻意**不复用** `views/AcademicView.tsx` 里那个 `AssignmentEditor`：
  * 那个是给「课业」整页用的，自带一套密集表单和网格样式。这一版界面是
- * 单色手绘风，弹层里只留四件事 —— 名字、截止时间、备注、完成。
+ * 单色手绘风，弹层里只留三件事 —— 名字、截止时间、确认状态。
+ *
+ * 没有「个人备注」：这个弹层的用途是「核对平台上的作业，标一下我做没做」，
+ * 想写笔记的人该去用任务那边的备注。多一个文本框只会让人以为它会被提交上去。
  *
  * 保存的语义要写清楚：改的是**本应用里的个人修正**，
  * 平台原文一个字节都不动。所以「恢复平台数据」永远可用。
@@ -12,6 +15,7 @@
 import { useState } from 'react';
 import { openExternal } from '../platform/open-external';
 import {taskTarget} from '../platform/widget-data';
+import CloseButton from './CloseButton';
 
 export interface AssignmentDraft {
   id: string;
@@ -60,7 +64,6 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
   const open=async(url:string)=>{try{await openExternal(url);}catch(e){setError(String(e));}};
   const [title, setTitle] = useState(draft.title);
   const [due, setDue] = useState(toLocalInput(draft.dueAt));
-  const [note, setNote] = useState(draft.note);
   const [confirmation, setConfirmation] = useState(draft.done?'done':draft.needsReview?'review':'open');
   const target=taskTarget(draft);
 
@@ -69,7 +72,6 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
     if (title !== draft.title) patch.title = title;
     if (due !== toLocalInput(draft.dueAt)) patch.dueAt = due === '' ? null : new Date(due).getTime();
     if(patch.dueAt!==undefined&&patch.dueAt!==null&&!Number.isFinite(patch.dueAt)){setError('请选择有效的截止时间');return;}
-    if (note !== draft.note) patch.note = note;
     patch.done = confirmation==='done';
     patch.needsReview = confirmation==='review';
     onSave(patch);
@@ -87,11 +89,12 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
       >
         <div className="sheet__head">
           <h2>作业详情</h2>
-          <button type="button" className="btn btn--sm" onClick={onClose}>关闭</button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <div className="assign-meta">
-          <span>{draft.courseTitle === '' ? draft.source : `${draft.courseTitle} · ${draft.source}`}</span>
+          {/* 只要课程名。「课程名 · 平台名」那半截在窄屏上会被折行，反而看不出是哪门课 */}
+          <span>{draft.courseTitle === '' ? draft.source : draft.courseTitle}</span>
           <span>{STATUS_TEXT[draft.status] ?? draft.status}</span>
         </div>
 
@@ -116,11 +119,6 @@ export default function AssignmentSheet({ draft, busy, onSave, onReset, onClose 
         <p className="assign-hint">
           平台原文：{draft.dueText === '' ? '未提供明确日期' : draft.dueText}
         </p>
-
-        <label className="field-label">
-          个人备注
-          <textarea className="field" value={note} maxLength={1000} rows={2} onChange={(e) => setNote(e.target.value)} />
-        </label>
 
         <label className="field-label">个人确认状态
           <select className="field" value={confirmation} onChange={e=>setConfirmation(e.target.value)}>

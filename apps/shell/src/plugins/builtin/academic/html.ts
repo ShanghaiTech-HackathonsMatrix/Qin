@@ -39,6 +39,35 @@ export function jsStrings(source: string): string[] {
   return values;
 }
 /** 页面未明确时区时绝不默认手机时区。 */
+/**
+ * 平台原文里只留「日期时间」那一段。
+ *
+ * 原来的写法是 `截止日期…(.{0,100})` —— 从**整页纯文本**里截 100 个字。
+ * 于是「2026年10月20日 下午11:59」后面跟着的页面其它内容（按钮文案、说明、
+ * 导航）全被算进了「平台原文」，界面上显示成半句日期 + 半段乱码。
+ *
+ * 这里改成只认日期表达式本身：认得出就只留那一段，认不出才退回一个短窗口 ——
+ * 无论如何都不把整页塞进界面。
+ */
+export function deadlineText(raw: string): string {
+  const value = text(raw);
+  const patterns: RegExp[] = [
+    // 带时区的机器时间（BB / Gradescope 的 datetime 属性）
+    /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:\s?(?:Z|[+-]\d{2}:?\d{2}))?/,
+    // 中文：2026年10月20日 星期二 下午11:59
+    /20\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日(?:\s*(?:星期|周)[一二三四五六日天])?(?:\s*(?:上午|下午|晚上|凌晨|中午)?\s*\d{1,2}\s*[:：]\s*\d{2}(?:\s*[:：]\s*\d{2})?)?/,
+    // 英文：Oct 20, 2026 11:59 PM
+    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,?\s+20\d{2})?(?:\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM)?)?/i,
+    // 纯日期：2026/10/20
+    /20\d{2}\s*[-/]\s*\d{1,2}\s*[-/]\s*\d{1,2}/,
+  ];
+  for (const re of patterns) {
+    const hit = value.match(re)?.[0];
+    if (hit) return hit.trim();
+  }
+  return value.length > 40 ? `${value.slice(0, 40).trimEnd()}…` : value;
+}
+
 export function parseDeadline(raw: string, term: string, timezone: string): number | null {
   const value = text(raw);
   const zoned = value.match(/\b(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2})(\d{2})\b/);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import CloseButton from './CloseButton';
 import type { Platform } from '../platform/bootstrap';
 import type { Overrides } from '../platform/overrides';
 import type { SlotId, SlotReport, Tier } from '../platform/strategies/types';
@@ -79,7 +80,7 @@ export default function DebugPanel({ platform, onClose, onApply }: Props) {
         <div className="sheet__head">
           <div className="sheet__title">策略调试面板</div>
           <div className="grow" />
-          <button className="btn btn--sm" onClick={onClose}>关闭</button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <div className="alert alert--info" style={{ marginBottom: 'var(--gap)' }}>

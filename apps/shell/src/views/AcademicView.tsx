@@ -1,4 +1,5 @@
 import LessonSheet from '../components/LessonSheet';
+import CloseButton from '../components/CloseButton';
 ﻿import { useEffect, useState } from 'react';
 import type { AcademicService } from '../core/academic-service.ts';
 import { currentWeek, minutes, type LessonRule, type Assignment, type TimetableSettings, type Period, type Provider, type AssignmentOverride } from '../plugins/builtin/academic/model.ts';
@@ -117,7 +118,7 @@ function AssignmentEditor({assignment:a,s,close,run}:{assignment:Assignment;s:Ac
     if(note!==(corrected.note??''))patch.note=note;
     if(done!==(corrected.done??['submitted','graded'].includes(a.status)))patch.done=done;
     await s.editAssignment(a.id,patch);close();});}}>
-    <div className="row"><h3>作业详情</h3><button type="button" className="btn" onClick={close}>关闭</button></div>
+    <div className="row"><h3>作业详情</h3><CloseButton onClick={close} /></div>
     <label>名称<input className="field" required value={title} maxLength={200} onChange={e=>setTitle(e.target.value)}/></label>
     <label>截止时间（手机本地时区）<input className="field" type="datetime-local" value={due} onChange={e=>setDue(e.target.value)}/></label>
     <small className="muted">平台原文：{a.dueText||'未提供明确日期'}{a.lateDueAt!==null?`；最迟补交：${time(a.lateDueAt)}`:''}</small>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { EventKind, Task, TaskStatus } from '../domain/types';
 import { groupCourseOptions, type CourseOption } from '../app/course-options';
+import CloseButton from './CloseButton';
 import { EVENT_KIND_LABEL, STATUS_LABEL } from '../domain/types';
 import { fromLocalInput, toLocalInput, uid } from '../app/format';
 
@@ -63,7 +64,7 @@ export default function TaskEditor({ task, courses, onClose, onSave, onDelete, o
         <div className="sheet__head">
           <div className="sheet__title">{task ? '编辑条目' : '新建条目'}</div>
           <div className="grow" />
-          <button className="btn btn--sm" onClick={onClose}>关闭</button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <div className="stack">

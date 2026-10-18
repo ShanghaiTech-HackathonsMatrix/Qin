@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import CloseButton from './CloseButton';
 
 interface Props {
   /** 演示模式下要如实说明「不写入本机」 */
@@ -40,7 +41,7 @@ export default function QuickAdd({ demo, onClose, onAddLines, onManual }: Props)
           {mode === 'text' && (
             <button className="btn btn--sm" onClick={() => setMode('menu')}>返回</button>
           )}
-          <button className="btn btn--sm" onClick={onClose}>关闭</button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {mode === 'menu' && (

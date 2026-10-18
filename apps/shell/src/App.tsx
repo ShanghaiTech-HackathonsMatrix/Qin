@@ -17,6 +17,7 @@ void TimelineViewPlaceholder;
 import CoursesView from './views/CoursesView';
 import SettingsView from './views/SettingsView';
 import TaskEditor from './components/TaskEditor';
+import CloseButton from './components/CloseButton';
 import { mergeCourseOptions, type CourseOption } from './app/course-options';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
@@ -1621,7 +1622,6 @@ const TAB_ICONS = {
                   <button className="btn btn--primary grow" onClick={() => flash('演示链接不会打开真实平台')}>
                     打开来源（演示） ↗
                   </button>
-                  <button className="btn" onClick={() => setDemoOverlay(null)}>关闭</button>
                 </div>
 
                 <p className="ddl-detail__foot">
@@ -1640,7 +1640,7 @@ const TAB_ICONS = {
             <div className="sheet__head">
               <div className="sheet__title">添加卡片</div>
               <div className="grow" />
-              <button className="btn btn--sm" onClick={() => setCardPicker(false)}>关闭</button>
+              <CloseButton onClick={() => setCardPicker(false)} />
             </div>
             <div className="quick__menu">
               {[...HOME_CARD_ORDER,...pluginCards.map(e=>pluginCardId(e.pluginId,e.view.id))].map((id) => {

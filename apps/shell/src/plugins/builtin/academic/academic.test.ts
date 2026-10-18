@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {currentAcademicTerm} from '../../../app/academic-term.ts';
-import { anchors, parseDeadline } from './html.ts';
+import { anchors, deadlineText, parseDeadline } from './html.ts';
 import { gradescopeCourses, gradescopeAssignments, blackboardCourses, blackboardAssignment, blackboardPending, eamsSelection, eamsTimetable } from './parsers.ts';
 import { defaultSettings, ENTRY, PLUGIN_IDS, parseWeeks, expandLessons, type AcademicCourse } from './model.ts';
 import { createConnector, connectorManifest, SNAPSHOT, type AcademicSnapshot } from './connectors.ts';
@@ -56,6 +56,36 @@ test('BB 保留稳定作业ID并读取中文截止时间与未提交状态',()=>
   const a=blackboardAssignment('<h1 class="hideoff">打开快速链接</h1><h1 id="pageTitleHeader">复查提交历史记录: 练习</h1>截止日期：2026年10月20日 星期二 下午11:59 未提交','https://elearning.shanghaitech.edu.cn:8443/webapps/assignment/uploadAssignment?content_id=_2_1',c,'');
   assert.equal(a?.title,'练习');
   assert.equal(a?.dueAt,Date.parse('2026-10-20T23:59:00+08:00'));assert.equal(a?.status,'not_submitted');
+  // 「平台原文」只留日期，后面的「未提交」不该跟进来
+  assert.equal(a?.dueText,'2026年10月20日 星期二 下午11:59');
+});
+
+test('平台原文只留日期：整页文本里截出来的那 100 个字不再原样显示',()=>{
+  /*
+    真实页面是长这样的：`text()` 把整页压成一行，`截止日期` 后面跟着的是
+    按钮文案、说明、导航……原来那个 `(.{0,100})` 会把它们一起截进来，
+    界面上就成了「半句日期 + 半段乱码」。
+  */
+  const page='作业信息 截止日期：2026年10月20日 下午11:59 提交作业 此作业尚未提交 附件 说明 '
+    +'评分标准 请在此处上传你的答案 上传文件 添加评论 返回课程 帮助 打印 无障碍';
+  const a=blackboardAssignment(
+    `<h1 id="pageTitleHeader">第三次作业</h1>${page}`,
+    'https://elearning.shanghaitech.edu.cn:8443/webapps/assignment/uploadAssignment?content_id=_9_1',
+    {...course,id:'blackboard:_1_1',provider:'blackboard' as const},'');
+  assert.equal(a?.dueText,'2026年10月20日 下午11:59');
+  assert.ok(!/上传|附件|打印/.test(a?.dueText??''),'页面其它内容不该混进平台原文');
+});
+
+test('deadlineText：中英文、机器时间、纯日期都只截日期那一段',()=>{
+  assert.equal(deadlineText('截止日期：2026年10月20日 星期二 下午11:59 未提交'),'2026年10月20日 星期二 下午11:59');
+  assert.equal(deadlineText('Due Date: Oct 20, 2026 11:59 PM PDT 提交作业'),'Oct 20, 2026 11:59 PM');
+  assert.equal(deadlineText('2026-10-20 23:59:00 +0800 说明'),'2026-10-20 23:59:00 +0800');
+  assert.equal(deadlineText('截止 2026/10/20 之前'),'2026/10/20');
+  // 一个日期都认不出来：退回短窗口，但绝不返回整页
+  const long='这一页没有任何日期信息'.repeat(20);
+  const out=deadlineText(long);
+  assert.ok(out.length<=41,'认不出日期时也不能把整页塞进界面');
+  assert.equal(deadlineText(''),'');
 });
 test('教务动态参数、断续周、周末及不连续节次；错误页明确失败',()=>{
   assert.equal(eamsSelection(entry,'').body,'setting.kind=std&startWeek=&semester.id=100&ids=999');

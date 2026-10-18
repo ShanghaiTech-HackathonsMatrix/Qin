@@ -1,8 +1,19 @@
-import type { SecureStore } from '../platform/strategies/kv/types';
-import { HOME_CARDS_VERSION, defaultHomeCards, migrateHomeCards, normalizeHomeCards, type HomeCardConfig } from './home-cards';
+import type { SecureStore } from '../platform/strategies/kv/types.ts';
+// 带 .ts 后缀：settings.test.ts 要用 `node` 直接跑，Node 的 ESM 解析不做后缀补全
+import { HOME_CARDS_VERSION, defaultHomeCards, migrateHomeCards, normalizeHomeCards, type HomeCardConfig } from './home-cards.ts';
 
 export type Density = 'compact' | 'normal' | 'comfy';
 export type Layout = 'list' | 'cards';
+
+/**
+ * 出厂排布的版本号。
+ *
+ * 1：默认「列表」—— 但那时 `layout` 是个空开关，设置页读写它，却没有任何地方
+ *    消费，所以这一版存下来的 `list` 并不是用户的真实选择。
+ * 2：默认改成「卡片」。迁移时把第 1 版那种「从没生效过的 list」一并带过去；
+ *    之后再手动选「列表」会连同 `layoutVersion: 2` 一起存下，不会被再次覆盖。
+ */
+export const LAYOUT_VERSION = 2;
 
 /**
  * 正文字号倍率。1 是设计稿原尺寸。
@@ -26,6 +37,8 @@ export interface AppSettings {
   accent: string;
   density: Density;
   layout: Layout;
+  /** 这份排布是按哪一版出厂排布迁移过来的。见 LAYOUT_VERSION */
+  layoutVersion: number;
   fontScale: number;
   /** 首页摆哪些卡片、什么顺序、多大 —— 见 app/home-cards.ts */
   homeCards: HomeCardConfig[];
@@ -46,11 +59,27 @@ export const LAYOUT_LABEL: Record<Layout, string> = {
 export const DEFAULT_SETTINGS: AppSettings = {
   accent: '#5b8cff',
   density: 'normal',
-  layout: 'list',
+  layout: 'cards',
+  layoutVersion: LAYOUT_VERSION,
   fontScale: 1,
   homeCards: defaultHomeCards(true),
   homeCardsVersion: HOME_CARDS_VERSION,
 };
+
+/**
+ * 排布迁移。
+ *
+ * 第 1 版的出厂值是 `list`，可那一版的开关是死的（没有任何地方消费它），
+ * 所以存下来的 `list` 不能当成用户的选择 —— 升到第 2 版时统一改成 `cards`。
+ * 一旦写入了 `layoutVersion: 2`，用户之后自己选的「列表」就会被尊重。
+ */
+export function migrateLayout(layout: unknown, version: unknown): Layout {
+  const stored = layout === 'list' || layout === 'cards' ? layout : null;
+  if (stored === null) return DEFAULT_SETTINGS.layout;
+  const from = typeof version === 'number' ? version : 1;
+  if (stored === 'list' && from < LAYOUT_VERSION) return 'cards';
+  return stored;
+}
 
 const KEY = 'app.settings';
 
@@ -62,7 +91,8 @@ export async function loadSettings(kv: SecureStore, demo = true): Promise<AppSet
     return {
       accent: typeof p.accent === 'string' ? p.accent : DEFAULT_SETTINGS.accent,
       density: (p.density as Density) ?? DEFAULT_SETTINGS.density,
-      layout: (p.layout as Layout) ?? DEFAULT_SETTINGS.layout,
+      layout: migrateLayout(p.layout, p.layoutVersion),
+      layoutVersion: LAYOUT_VERSION,
       fontScale: normalizeFontScale(p.fontScale),
       homeCards: migrateHomeCards(
         normalizeHomeCards(p.homeCards, demo),

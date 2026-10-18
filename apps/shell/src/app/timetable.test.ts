@@ -10,7 +10,7 @@
 
 import { strict as assert } from 'node:assert';
 
-import { buildWeekDays, lessonCount, teachingWeek, type TimetableRule } from './timetable.ts';
+import { buildWeekDays, courseInfoRows, lessonCount, slotLabel, teachingWeek, weeksText, type TimetableRule } from './timetable.ts';
 
 let passed = 0;
 const failures: string[] = [];
@@ -125,6 +125,82 @@ test('节次超出节次表时不崩，时间留空', () => {
   const days = buildWeekDays({ rules, periods: PERIODS, week: 1, weekOne: WEEK_ONE, now: at(2026, 9, 14), showWeekend: true });
   assert.equal(days[0].lessons[0].start, '');
   assert.equal(days[0].lessons[0].periods, '第 9 节');
+});
+
+test('教学周连续段压成区间，断开的逐个列', () => {
+  assert.equal(weeksText([1, 2, 3, 4, 5]), '1–5 周');
+  // 单双周课很常见，不能糊成「1–15 周」
+  assert.equal(weeksText([1, 3, 5, 7]), '1、3、5、7 周');
+  assert.equal(weeksText([1, 2, 3, 8, 9]), '1–3、8–9 周');
+});
+
+test('教学周乱序/重复也能排好再压', () => {
+  assert.equal(weeksText([5, 1, 3, 2, 4]), '1–5 周');
+  assert.equal(weeksText([2, 2, 3]), '2–3 周');
+  assert.equal(weeksText([7]), '7 周');
+});
+
+test('没有教学周时给破折号，不留空白格', () => {
+  assert.equal(weeksText([]), '—');
+});
+
+const COURSE_RULES = [
+  { id: 'a1', courseId: 'c2', code: 'CS101', title: '操作系统', teacher: '陈老师', location: 'A301', weekday: 1, first: 1, last: 2, weeks: [1, 2, 3] },
+  { id: 'a2', courseId: 'c2', code: 'CS101', title: '操作系统', teacher: '陈老师', location: 'A301', weekday: 3, first: 5, last: 5, weeks: [1, 2, 3] },
+  { id: 'b1', courseId: 'c1', code: 'MA201', title: '概率论', teacher: '李老师', location: 'B204', weekday: 2, first: 3, last: 4, weeks: [2] },
+];
+
+test('课程信息表：一门课多个时段聚成一行', () => {
+  const rows = courseInfoRows(COURSE_RULES);
+  assert.equal(rows.length, 2, '两条课时属于同一门课，不能算两门');
+  const os = rows.find((r) => r.title === '操作系统');
+  assert.ok(os !== undefined);
+  assert.equal(os.slots.length, 2);
+  // 时段按星期、节次排好，不是按教务返回的顺序
+  assert.deepEqual(os.slots.map((s) => `${s.weekday}-${s.first}`), ['1-1', '3-5']);
+});
+
+test('课程信息表：按课程号排序，和教务系统一致', () => {
+  const rows = courseInfoRows(COURSE_RULES);
+  assert.deepEqual(rows.map((r) => r.code), ['CS101', 'MA201']);
+});
+
+test('课程信息表：同一节课吐两遍只算一个时段', () => {
+  const dup = [COURSE_RULES[0], { ...COURSE_RULES[0], id: 'a1-dup' }];
+  const rows = courseInfoRows(dup);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].slots.length, 1, '重复课时不能把「上课时间」撑出两行一样的');
+});
+
+test('课程信息表：没有 courseId 时按课程名聚合', () => {
+  const noId = [
+    { id: 'x1', title: '体育', teacher: '王老师', location: '操场', weekday: 4, first: 7, last: 8, weeks: [1] },
+    { id: 'x2', title: '体育', teacher: '王老师', location: '操场', weekday: 5, first: 7, last: 8, weeks: [1] },
+  ];
+  const rows = courseInfoRows(noId);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].slots.length, 2);
+});
+
+test('课程信息表：教师/地点不同就都留着，重复的不重复写', () => {
+  const mixed = [
+    { ...COURSE_RULES[0] },
+    { ...COURSE_RULES[1], teacher: '张老师', location: 'A301' },
+    { ...COURSE_RULES[1], id: 'a3', teacher: '陈老师', location: 'B102' },
+  ];
+  const rows = courseInfoRows(mixed);
+  assert.equal(rows[0].teacher, '陈老师、张老师');
+  assert.equal(rows[0].location, 'A301、B102');
+});
+
+test('课程信息表：空输入给空表，调用方据此不渲染这一块', () => {
+  assert.deepEqual(courseInfoRows([]), []);
+});
+
+test('时段文案：跨节写区间，单节不写 5–5', () => {
+  assert.equal(slotLabel({ weekday: 1, first: 1, last: 2 }), '周一 第 1–2 节');
+  assert.equal(slotLabel({ weekday: 3, first: 5, last: 5 }), '周三 第 5 节');
+  assert.equal(slotLabel({ weekday: 7, first: 9, last: 11 }), '周日 第 9–11 节');
 });
 
 console.log('');

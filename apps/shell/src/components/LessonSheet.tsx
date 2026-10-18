@@ -22,25 +22,9 @@ import { useState } from 'react';
 
 import type { AcademicService } from '../core/academic-service';
 import { PROVIDER_LABEL } from '../app/ddl-items';
+import { weeksText } from '../app/timetable';
 
 const WEEKDAY = '一二三四五六日';
-
-/** 连续周次压成「1–16 周」，断开的再逐个列出 */
-function weeksText(weeks: readonly number[]): string {
-  if (weeks.length === 0) return '—';
-  const sorted = [...weeks].sort((a, b) => a - b);
-  const runs: string[] = [];
-  let start = sorted[0];
-  let prev = sorted[0];
-  for (const n of sorted.slice(1)) {
-    if (n === prev + 1) { prev = n; continue; }
-    runs.push(start === prev ? String(start) : `${start}–${prev}`);
-    start = n;
-    prev = n;
-  }
-  runs.push(start === prev ? String(start) : `${start}–${prev}`);
-  return `${runs.join('、')} 周`;
-}
 
 export default function LessonSheet({ id, service: s, close }: { id: string; service: AcademicService; close: () => void }) {
   const raw = s.snapshots.flatMap((x) => x.rules).find((x) => x.id === id);

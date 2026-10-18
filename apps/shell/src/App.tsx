@@ -22,7 +22,8 @@ import { mergeCourseOptions, type CourseOption } from './app/course-options';
 import QuickAdd from './components/QuickAdd';
 import WeekStrip from './components/WeekStrip';
 import TimetableView from './views/TimetableView';
-import { buildWeekDays, lessonCount, teachingWeek } from './app/timetable';
+import CourseInfoTable from './views/CourseInfoTable';
+import { buildWeekDays, courseInfoRows, lessonCount, teachingWeek } from './app/timetable';
 import { PROVIDER_LABEL, ddlMeta, ddlsFromTasks, pickUrgent, platformDdls, type DdlItem } from './app/ddl-items';
 import {currentTermSnapshot} from './app/academic-term';
 import {compactDdlLabels} from './app/ddl-labels';
@@ -698,6 +699,17 @@ export default function App() {
     });
     return { week, totalWeeks: settings.totalWeeks, days, synced: rules.length > 0, periods: settings.periods };
   }, [platform, academicSnapshots, academicTick, nowMs, weekOffset]);
+
+  /**
+   * 课程信息表的数据：把课时按课程聚合。
+   *
+   * 和周课表用同一份 `rules`，但形状不同 —— 那边按周摊成格子，这边一门课一行。
+   * 聚合逻辑在 `app/timetable.ts` 的 `courseInfoRows`，Node 里测得起来。
+   */
+  const courseRows = useMemo(
+    () => courseInfoRows(academicSnapshots.flatMap((snap) => snap.rules ?? [])),
+    [academicSnapshots, academicTick],
+  );
 
   /** 从三个学习平台拉回来的作业，形状和本机任务完全一样 */
   const platformItems = useMemo<DdlItem[]>(
@@ -1496,7 +1508,15 @@ const TAB_ICONS = {
                 }
               />
             )}
-            {p.academic.snapshots.some(s=>s.rules.length>0)&&<details className="card stack"><summary>全部排课与课程备注</summary>{p.academic.snapshots.flatMap(s=>s.rules).map(r=><button className="btn" key={r.id} onClick={()=>setLessonId(r.id)}>{r.title} · 周{'一二三四五六日'[r.weekday-1]} · 第 {r.first}–{r.last} 节</button>)}</details>}
+            {courseRows.length > 0 && (
+              <>
+                <div className="quest-section__head quest-section__head--spaced">
+                  <h2>课程信息</h2>
+                  <span className="quest-section__ornament">{courseRows.length} 门</span>
+                </div>
+                <CourseInfoTable rows={courseRows} onOpenLesson={setLessonId} />
+              </>
+            )}
           </>
         )}
 

@@ -688,6 +688,37 @@ details.conn > summary::-webkit-details-marker { display: none; }
 details.conn[open] > summary .conn__status { border-color: #111; font-weight: 800; }
 .tt__legend { margin: 0; text-align: right; color: #8d8d87;
   font-size: calc(10.5px * var(--font-base) * var(--font-scale)); }
+/*
+  课程信息表：和上面 .tt__grid 同一套观感（黑表头、发丝线、白底），
+  但这是「一门课一行」，不需要横向滚动 —— 列宽按比例分，长内容自己换行。
+*/
+.ct { display: grid; gap: 7px; }
+.ct__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 0; max-width: 100%;
+  border: 1.5px solid #111; border-radius: 10px 8px 11px 9px; background: #fff; }
+.ct__grid { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.ct__grid thead th { background: #111; color: #fff; padding: 6px 7px; text-align: left;
+  font-size: calc(10.5px * var(--font-base) * var(--font-scale)); font-weight: 700; letter-spacing: .04em; }
+.ct__grid thead th:nth-child(1) { width: 33%; }
+.ct__grid thead th:nth-child(2) { width: 15%; }
+.ct__grid thead th:nth-child(3) { width: 21%; }
+.ct__grid thead th:nth-child(4) { width: 31%; }
+.ct__grid tbody th, .ct__grid tbody td { padding: 8px 7px; vertical-align: top; text-align: left;
+  border-bottom: 1px solid #dcdcd6; font-size: calc(11.5px * var(--font-base) * var(--font-scale)); font-weight: 400; }
+.ct__grid tbody tr:last-child th, .ct__grid tbody tr:last-child td { border-bottom: 0; }
+.ct__course strong { display: block; font-size: calc(12.5px * var(--font-base) * var(--font-scale));
+  font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.ct__course em { display: block; margin-top: 2px; font-style: normal; color: #8d8d87;
+  font-size: calc(10px * var(--font-base) * var(--font-scale)); letter-spacing: .02em; }
+.ct__slots { display: grid; gap: 4px; }
+.ct__slot { display: block; width: 100%; padding: 0; text-align: left; background: none;
+  border: 0; color: #111; font: inherit; cursor: pointer; }
+.ct__slot b { display: block; font-weight: 700; line-height: 1.35;
+  font-size: calc(11.5px * var(--font-base) * var(--font-scale)); }
+.ct__slot em { display: block; font-style: normal; color: #8d8d87; line-height: 1.35;
+  font-size: calc(10px * var(--font-base) * var(--font-scale)); }
+.ct__slot:active b { text-decoration: underline; }
+.ct__legend { margin: 0; text-align: right; color: #8d8d87;
+  font-size: calc(10.5px * var(--font-base) * var(--font-scale)); }
 
 .timetable-empty {
   display: grid;

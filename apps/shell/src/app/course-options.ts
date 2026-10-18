@@ -10,6 +10,14 @@
  * 下拉栏原来只喂本机那份，于是同步回来几十门课、下拉栏里还是只有「（无）」一项：
  * 看着能点，实际没得选。用户说的「所属课程下拉栏无法选择」就是这个。
  *
+ * ## 平台课程只取教务课表
+ *
+ * 互动教学平台和 Gradescope 是**作业平台**，不是课程名单：同一门课在三个平台
+ * 上各有各的 id，混在一起就会出现「操作系统」和「操作系统 · CS101」两条 ——
+ * 选哪个都对，也都不对。教务课表是学校排课的权威名单，一门课一条。
+ *
+ * 所以平台侧只认 `eams`。要放开哪个平台，改 `PLATFORM_SOURCES` 一处即可。
+ *
  * ## 为什么按 id 去重、且本机优先
  *
  * 同一个 id 只留第一次出现的那条。本机排前面 —— 用户在「课程」页改过的名字
@@ -18,6 +26,14 @@
  */
 
 import { PROVIDER_LABEL } from './ddl-items.ts';
+
+/**
+ * 哪些平台的课会进下拉栏。
+ *
+ * 只留教务课表：它是学校排课的权威名单。互动教学平台 / Gradescope 上的
+ * 课程 id 和教务的不是同一套，混进来只会让同一门课在列表里出现两次。
+ */
+const PLATFORM_SOURCES: ReadonlySet<string> = new Set(['eams']);
 
 export interface CourseOption {
   id: string;
@@ -59,7 +75,7 @@ export function mergeCourseOptions(
   }
 
   for (const snap of snapshots) {
-    // 未知平台就原样显示 id —— 总比显示成「其他」让人猜强
+    if (!PLATFORM_SOURCES.has(snap.provider)) continue;
     const source = PROVIDER_LABEL[snap.provider] ?? snap.provider;
     for (const c of snap.courses) {
       if (seen.has(c.id)) continue;

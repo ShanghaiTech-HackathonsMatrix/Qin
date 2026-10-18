@@ -103,7 +103,7 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
             )}
             {snapshot !== undefined && (
               <p className="conn__note" data-tone="info">
-                上次成功：{stamp(snapshot.syncedAt)} · 课程 {snapshot.courses.length} · 作业 {snapshot.assignments.length}
+                最近同步：{stamp(snapshot.syncedAt)} · {snapshot.courses.length} 门课 · {snapshot.assignments.length} 项作业
                 {item.id === 'eams' ? ` · 排课 ${snapshot.rules.length}` : ''}
               </p>
             )}
@@ -132,7 +132,7 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
       })}
 
       {note !== null && <p className="conn__note" data-tone={note.tone}>{note.text}</p>}
-      {busy&&<button className="btn" onClick={()=>{academic.cancel();setNote({tone:'info',text:'正在停止，将等待当前页面请求结束；已读内容保留。'});}}>停止同步</button>}
+      {busy&&<button className="btn" onClick={()=>{academic.cancel();setNote({tone:'info',text:'正在停止，请稍候。已读取的内容会保留。'});}}>停止同步</button>}
 
       <div className="conn__actions">
         <button
@@ -190,8 +190,8 @@ function TimetableSetup({ academic }: { academic: AcademicService }) {
       </label>
       <p className="conn__note" data-tone="info">
         {academic.settings.weekOne === ''
-          ? '还没填。不填的话，教务同步回来的课次不会出现在日程里。'
-          : '改完保存后，日程里的课次会立刻按新基准重排。'}
+          ? '请填写第 1 教学周的周一，让课程显示在日程中。'
+          : '保存后，日程中的课程日期会随之更新。'}
       </p>
       {note !== null && <p className="conn__note" data-tone={note.tone}>{note.text}</p>}
       <div className="conn__actions">

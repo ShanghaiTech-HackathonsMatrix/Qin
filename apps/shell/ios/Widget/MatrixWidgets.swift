@@ -124,11 +124,7 @@ private struct DDLWidgetView: View {
           VStack(spacing: 0) {
             Button(intent: MatrixWidgetRefreshIntent()) {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 7) {
-                        Capsule().fill(Color(white: 0.62).gradient).frame(width: 3, height: 14)
-                        Text("DDL / 截止").font(.system(.subheadline, design: .rounded, weight: .semibold))
-                        Spacer(minLength: 0)
-                    }
+                    WidgetSectionHeader(symbol: "checklist", title: "DDL / 截止")
                     if !entry.demoCleared {
                         DDLRow(course: "演示 / Demo", title: "演示作业 / Demo DDL",
                                deadline: "明天 / Tomorrow", compact: family == .systemSmall)
@@ -144,7 +140,7 @@ private struct DDLWidgetView: View {
                     } else if entry.demoCleared {
                         Spacer(minLength: 0)
                         Text(entry.snapshot == nil ? "请先在 App 同步 / Sync in app first" : "暂无未完成 DDL / No active deadlines")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(WidgetPalette.muted)
                         Spacer(minLength: 0)
                     }
                     if !entry.refreshMessage.isEmpty {
@@ -152,12 +148,11 @@ private struct DDLWidgetView: View {
                             .font(.caption2).foregroundStyle(.orange).lineLimit(1)
                     }
                 }
-                .foregroundStyle(.primary)
+                .foregroundStyle(WidgetPalette.ink)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(12)
                 .contentShape(Rectangle())
                 .animation(.easeOut(duration: 1.2), value: entry.demoCleared)
-                .background(GlassSurface())
 
             }
             // Keep the interaction style verified on device. Re-test taps before
@@ -173,10 +168,11 @@ private struct DDLWidgetView: View {
                     Spacer(minLength: 0)
                 }
                 .font(.caption2)
-                .foregroundStyle(Color(white: 0.28))
+                .foregroundStyle(WidgetPalette.ink)
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .frame(maxWidth: .infinity)
-                .background(Color(white: 0.5).opacity(0.10))
+                .background(WidgetPalette.secondaryPaper.opacity(0.35))
+                .overlay(alignment: .top) { Rectangle().fill(WidgetPalette.ink.opacity(0.08)).frame(height: 0.5) }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -212,22 +208,63 @@ private struct DDLRow: View {
             HStack(spacing: compact ? 4 : 8) {
                 Text(course)
                     .font(.system(size: compact ? 10 : 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WidgetPalette.muted)
                     .frame(width: geometry.size.width * (compact ? 0.22 : 0.25), alignment: .leading)
                 Text(title)
                     .font(.system(size: compact ? 11 : 12, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(deadline)
-                    .font(.system(size: compact ? 9 : 11, weight: .medium, design: .rounded))
+                    .font(.system(size: compact ? 9 : 11, weight: .medium, design: .default))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WidgetPalette.muted)
                     .fixedSize(horizontal: true, vertical: false)
             }
             .lineLimit(1)
             .frame(height: geometry.size.height)
         }
-        .frame(height: 21)
-        .overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.06)).frame(height: 0.5) }
+        .padding(.horizontal, 6)
+        .frame(height: 23)
+        .background(WidgetPalette.card.opacity(0.32), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(WidgetPalette.ink.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 8)
+        }
+    }
+}
+
+// Retain the app's warm neutral palette, rendered with native iOS materials.
+// Dark mode uses warm charcoal and light ink, without colored glass tints.
+private enum WidgetPalette {
+    static let paper = adaptive(light: 0xF7F7F3, dark: 0x1C1C1A)
+    static let card = adaptive(light: 0xFFFFFF, dark: 0x262624)
+    static let secondaryPaper = adaptive(light: 0xEFEFEB, dark: 0x30302C)
+    static let ink = adaptive(light: 0x111111, dark: 0xF3F3EC)
+    static let muted = adaptive(light: 0x555555, dark: 0xB8B8AF)
+
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                           green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        })
+    }
+}
+
+private struct WidgetSectionHeader: View {
+    let symbol: String
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(WidgetPalette.muted)
+            Text(title).font(.system(size: 14, weight: .semibold))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(WidgetPalette.ink)
+        .lineLimit(1)
+        .padding(.bottom, 4)
     }
 }
 
@@ -238,64 +275,23 @@ private struct DDLCardBackground: View {
     var body: some View {
         ZStack {
             if reduceTransparency {
-                Color(uiColor: .secondarySystemBackground)
+                WidgetPalette.paper
             } else {
                 Rectangle().fill(.thinMaterial)
-                Rectangle().fill(colorScheme == .dark
-                    ? Color(white: 0.16).opacity(0.62)
-                    : Color(white: 0.94).opacity(0.56))
+                // Warm frost across the whole surface, rather than an opaque
+                // paper inset. WidgetKit controls the wallpaper contribution.
+                WidgetPalette.paper.opacity(colorScheme == .dark ? 0.48 : 0.52)
                 LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [.white.opacity(0.18), Color(white: 0.45).opacity(0.10), .black.opacity(0.24)]
-                        : [.white.opacity(0.66), Color(white: 0.92).opacity(0.24), Color(white: 0.65).opacity(0.19)],
+                    colors: [.white.opacity(colorScheme == .dark ? 0.10 : 0.34),
+                             .clear, WidgetPalette.secondaryPaper.opacity(0.15)],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
-                RadialGradient(
-                    colors: [.white.opacity(colorScheme == .dark ? 0.18 : 0.65), .clear],
-                    center: .topLeading, startRadius: 0, endRadius: 190)
-                // Specular rim and inner dark edge create a visible glass thickness.
-                ContainerRelativeShape()
-                    .inset(by: 1)
-                    .strokeBorder(LinearGradient(
-                        colors: [.white.opacity(0.95), .white.opacity(0.40),
-                                 .white.opacity(0.06), .white.opacity(0.55)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-                ContainerRelativeShape()
-                    .inset(by: 3)
-                    .strokeBorder(LinearGradient(
-                        colors: [.black.opacity(colorScheme == .dark ? 0.20 : 0.09), .clear,
-                                 .white.opacity(0.18)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.75)
             }
+            ContainerRelativeShape().inset(by: 1)
+                .strokeBorder(LinearGradient(
+                    colors: [.white.opacity(colorScheme == .dark ? 0.32 : 0.78),
+                             .white.opacity(0.08), .white.opacity(0.30)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.75)
         }
-    }
-}
-
-private struct GlassSurface: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(.thinMaterial)
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(colorScheme == .dark
-                        ? Color(white: 0.16).opacity(0.62)
-                        : Color(white: 0.94).opacity(0.56))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: colorScheme == .dark
-                            ? [Color(white: 0.92).opacity(0.13), Color(white: 0.05).opacity(0.22)]
-                            : [Color(white: 1).opacity(0.42), Color(white: 0.72).opacity(0.10)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(.white.opacity(colorScheme == .dark ? 0.28 : 0.62), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.28 : 0.12), radius: 8, y: 3)
-            .padding(4)
     }
 }
 
@@ -316,26 +312,25 @@ private struct NextLessonWidgetView: View {
         ZStack {
             Button(intent: MatrixWidgetRefreshIntent()) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("今日课程 / Today").font(.headline)
-                    }
+                    WidgetSectionHeader(symbol: "calendar", title: "今日课程 / Today")
                     if let lesson = nextLesson {
-                        Text(lesson.course).font(.title3.weight(.semibold)).lineLimit(2)
+                        Text(lesson.course).font(.title3.weight(.bold)).lineLimit(2)
                         HStack(spacing: 3) {
                             Text(Date(timeIntervalSince1970: lesson.startAt / 1000), style: .time)
                             Text("–")
                             Text(Date(timeIntervalSince1970: lesson.endAt / 1000), style: .time)
                         }
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.system(.caption, design: .default, weight: .medium))
+                        .foregroundStyle(WidgetPalette.muted)
                         if !lesson.location.isEmpty {
                             Label(lesson.location, systemImage: "mappin.and.ellipse")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.caption).foregroundStyle(WidgetPalette.muted).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     } else {
                         Spacer(minLength: 0)
                         Text(entry.snapshot == nil ? "请先在 App 同步 / Sync in app first" : "今天没有后续课程 / No more classes today")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(WidgetPalette.muted)
                         Spacer(minLength: 0)
                     }
                     if !entry.refreshMessage.isEmpty {
@@ -343,6 +338,7 @@ private struct NextLessonWidgetView: View {
                             .font(.caption2).foregroundStyle(.orange).lineLimit(2)
                     }
                 }
+                .foregroundStyle(WidgetPalette.ink)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(12)
                 .contentShape(Rectangle())
@@ -354,7 +350,7 @@ private struct NextLessonWidgetView: View {
             .accessibilityIdentifier("matrix.widget.refresh.lesson")
             .accessibilityHint("单击刷新 / Tap to refresh")
         }
-        .containerBackground(.background, for: .widget)
+        .containerBackground(for: .widget) { DDLCardBackground() }
 
     }
 

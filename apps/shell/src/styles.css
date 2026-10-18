@@ -1186,6 +1186,49 @@ button.log-row:active { background: #f0f0ec; }
 .log-row[data-overdue='true'] .log-row__body small { color: #8d8d87; }
 .log-row[data-overdue='true'] .log-row__due em { color: #5f5f5a; font-weight: 600; }
 
+/* ------------------------------------------------------ 列表 / 卡片 两种排布 */
+/*
+  `settings.layout` 之前是个空开关：设置页读写它，但没有任何地方消费 ——
+  点了「列表 / 卡片」界面毫无变化。这里把它落到实处。
+
+  只改「一项」怎么画，结构一个都不动，所以任务日志、每日日程、首页 DDL
+  三处列表自动跟着一致：
+
+  卡片（默认以外的那种）：每一项自己一个框，项之间留 9px 空隙。
+  列表：整组装进一个框，项与项之间一条发丝线，没有各自的边框和圆角，
+        上下留白收紧 —— 同样一屏能多看两三条。
+*/
+.app[data-layout='list'] .log-list,
+.app[data-layout='list'] .ddl-list,
+.app[data-layout='list'] .schedule-day__rows {
+  gap: 0; background: #fff;
+  border: 1.5px solid #111; border-radius: 9px 11px 8px 10px; overflow: hidden;
+}
+.app[data-layout='list'] .log-row,
+.app[data-layout='list'] .ddl-card,
+.app[data-layout='list'] .schedule-entry {
+  border: 0; border-bottom: 1px solid #dcdcd6; border-radius: 0;
+  background: transparent; padding-top: 9px; padding-bottom: 9px;
+}
+/* 最后一项不留线，否则会和外框贴成两道 */
+.app[data-layout='list'] .log-list > *:last-child .log-row,
+.app[data-layout='list'] .ddl-list > .ddl-card:last-child,
+.app[data-layout='list'] .schedule-day__rows > .schedule-entry:last-child { border-bottom: 0; }
+
+/* 逾期原来靠虚线边框认，列表模式下边框收掉了，改用底色 + 左边一条竖线 */
+.app[data-layout='list'] .log-row[data-overdue='true'] {
+  background: #f0f0ea; box-shadow: inset 3px 0 0 #b4b4ae;
+}
+/* 平台作业（不能删、只能隐藏）在列表模式下也用虚线底边区分 */
+.app[data-layout='list'] .log-row[data-static='true'] { border-bottom-style: dashed; }
+
+/* 紧凑一点：行高和标题各收一档，截止那列不用占那么宽 */
+.app[data-layout='list'] .log-row { grid-template-columns: 74px 1fr 18px; }
+.app[data-layout='list'] .log-row__body strong,
+.app[data-layout='list'] .ddl-card__body strong,
+.app[data-layout='list'] .schedule-entry__body strong { font-size: calc(14.5px * var(--font-base) * var(--font-scale)); }
+.app[data-layout='list'] .ddl-card { grid-template-columns: 58px 1fr 20px; }
+
 /* 提示气泡：贴在「＋」上方居中，不跟圆钮抢位置 */
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(45px + 10px + 50px + 14px + env(safe-area-inset-bottom)); z-index: 90; max-width: calc(100% - 32px); padding: 9px 15px; background: #111; color: #fff; border-radius: 8px 10px 7px 9px; font-size: calc(12px * var(--font-base) * var(--font-scale)); text-align: center; }
 

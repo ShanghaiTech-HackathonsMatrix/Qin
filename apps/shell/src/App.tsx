@@ -1299,7 +1299,7 @@ const TAB_ICONS = {
   };
 
   return (
-    <div className="app" data-large-font={settings.fontScale>1.15} style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
+    <div className="app" data-layout={settings.layout} data-large-font={settings.fontScale>1.15} style={{ ['--font-scale' as string]: String(settings.fontScale) } as CSSProperties}>
       <div className="topbar">
         <div className="topbar__identity">
           <span className="topbar__sigil" aria-hidden="true">✳</span>

@@ -49,10 +49,11 @@ import WidgetKit
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }
     }
-    static func finish(requestID: Double, error: String) {
+    static func finish(requestID: Double, error: String, partial: Bool = false) {
         defaults.set(max(requestID, defaults.double(forKey: "ddl.widget.refreshConsumedAt")), forKey: "ddl.widget.refreshConsumedAt")
         defaults.set(Date().timeIntervalSince1970 * 1000, forKey: "ddl.widget.refreshFinishedAt")
         defaults.set(error, forKey: "ddl.widget.refreshError")
+        defaults.set(partial, forKey: "ddl.widget.refreshPartial")
         defaults.set("native", forKey: "ddl.widget.lastRefreshExecutor")
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -100,7 +101,8 @@ import WidgetKit
             defaults.set(Date().timeIntervalSince1970 * 1000, forKey: "ddl.widget.snapshotUpdatedAt")
             defaults.set(statuses, forKey: "ddl.widget.lastProviderStatuses")
             let errors = statuses.filter { $0.value != "同步成功" }.sorted { $0.key < $1.key }.map { "\($0.key)：\($0.value)" }
-            finish(requestID: requestID, error: errors.joined(separator: "；"))
+            finish(requestID: requestID, error: errors.joined(separator: "；"),
+                   partial: !errors.isEmpty && statuses.values.contains("同步成功"))
             if let events = object["submissions"] as? [[String: String]], !events.isEmpty {
                 let items = events.compactMap { event -> MatrixKillDDLAttributes? in
                     guard let eventID = event["eventID"], let title = event["title"], let course = event["course"] else { return nil }

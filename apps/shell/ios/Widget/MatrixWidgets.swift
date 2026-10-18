@@ -54,6 +54,9 @@ private struct Entry: TimelineEntry {
         let finished = defaults?.double(forKey: "ddl.widget.refreshFinishedAt") ?? 0
         let showResult = finished > 0 && date.timeIntervalSince1970 * 1000 < feedbackUntil
         if showResult, let error = defaults?.string(forKey: "ddl.widget.refreshError"), !error.isEmpty {
+            if defaults?.bool(forKey: "ddl.widget.refreshPartial") == true {
+                return "部分刷新完成，失败平台保留旧信息 / Partially updated · \(error)"
+            }
             return "刷新失败，保留上次信息 / Refresh failed · \(error)"
         }
         if showResult {

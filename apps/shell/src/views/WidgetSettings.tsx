@@ -120,11 +120,11 @@ export default function WidgetSettings({ platform }: { platform: Platform }) {
       <div className="widget-settings__section">
         <h4>添加后，这样用</h4>
         <ul className="widget-settings__gestures">
-          <li><span className="widget-settings__gesture" aria-hidden="true">↕</span><div><strong>上下滑动 · 切换内容</strong><p>上滑看今日课程，下滑看待办。</p></div></li>
+          <li><span className="widget-settings__gesture" aria-hidden="true">●○</span><div><strong>点底部圆点 · 切换内容</strong><p>左点看待办，右点看今日课程；实心点是当前页。</p></div></li>
           <li><span className="widget-settings__gesture" aria-hidden="true">×2</span><div><strong>双击条目 · 查看详情</strong><p>双击课程打开课表；双击作业打开对应网页或应用内详情。</p></div></li>
           <li><span className="widget-settings__gesture" aria-hidden="true">↻</span><div><strong>单击内容 · 联网更新</strong><p>获取互动教学平台（BB）和 Gradescope 的最新作业信息。</p></div></li>
         </ul>
-        <p className="widget-settings__tip">滑动时请完整翻到下一页，避免停在两页之间。放大挂件可显示更多条目。</p>
+        <p className="widget-settings__tip">挂件一次只显示一页，不会有内容被切掉一半。放大挂件可显示更多条目。</p>
       </div>
 
       <div className="widget-settings__section">

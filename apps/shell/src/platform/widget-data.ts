@@ -9,6 +9,29 @@ export interface WidgetData {
   snapshots:AcademicSnapshot[];settings:TimetableSettings;corrections:UserCorrections;
   enabled:Record<string,boolean|undefined>;tasks:Task[];courses:Course[];
 }
+/*
+  挂件上只放课程名。
+
+  `Course.code` 从来没被拼进名字里（它是独立字段），平台快照的 `code` 也一直是空串。
+  但**平台给的课程标题本身**常常带着课程代码 —— 「CS204 操作系统」「操作系统（CS204）」。
+  `compactCourseName` 只负责剥学期，代码会原样留下来。挂件一行就那么宽，
+  代码属于「其他信息」，不该占这个位置。
+
+  只作用在挂件的显示投影上：不改快照、不改个人修正、也不改 App 里的课程名。
+*/
+export function courseNameOnly(raw:string):string {
+  const original=raw.trim();
+  const name=original
+    // 末尾括号里的代码：操作系统（CS204）→ 操作系统
+    .replace(/[（(【[]\s*[A-Za-z]{2,6}[\s-]?\d{2,4}[A-Za-z]?\s*[）)】\]]\s*$/,'')
+    // 开头的代码：CS204 操作系统 / CS 204 操作系统 → 操作系统
+    .replace(/^[A-Za-z]{2,6}[\s-]?\d{2,4}[A-Za-z]?(?:\s*[-–]\s*\d{1,3})?\s*[:：·|_-]?\s+/,'')
+    // 末尾裸露的代码：操作系统 CS204 → 操作系统
+    .replace(/\s+[A-Za-z]{2,6}[\s-]?\d{2,4}[A-Za-z]?$/,'')
+    .trim();
+  // 整个名字就是一个代码时原样留着 —— 剥成空串等于把这一行删了
+  return name||original;
+}
 /** 同一入口用于 App 发布和后台同步。不会把“消失”或读取失败当作提交。 */
 export function widgetSnapshot(data:WidgetData,now:number){
   const snapshots=data.snapshots.filter(s=>data.enabled[s.provider]!==false).map(s=>currentTermSnapshot(s,now));
@@ -22,7 +45,7 @@ export function widgetSnapshot(data:WidgetData,now:number){
   const all=[...ddlsFromTasks(data.tasks),...platformDdls(snapshots,data.settings.selectedCourses,data.corrections.assignments),...undatedLocal,...undatedPlatform];
   const labels=compactDdlLabels(all);
   const items=all.sort(compareTasks).filter(t=>!t.done).map(t=>({
-    id:t.id,title:labels.get(t.id)!.title,course:labels.get(t.id)!.course||data.courses.find(c=>c.id===t.courseId)?.name||'本机任务',dueAt:t.dueAt,
+    id:t.id,title:labels.get(t.id)!.title,course:courseNameOnly(labels.get(t.id)!.course||data.courses.find(c=>c.id===t.courseId)?.name||'本机任务'),dueAt:t.dueAt,
     fullTitle:t.title,fullCourse:t.courseTitle??data.courses.find(c=>c.id===t.courseId)?.name??'本机任务',
     target:taskTarget(t),needsReview:!!t.needsReview,
   }));

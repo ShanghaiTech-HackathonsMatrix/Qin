@@ -1,6 +1,6 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
-import {widgetSnapshot,taskTarget,type WidgetData} from './widget-data.ts';
+import {widgetSnapshot,taskTarget,courseNameOnly,type WidgetData} from './widget-data.ts';
 import {defaultSettings} from '../plugins/builtin/academic/model.ts';
 import {compareTasks,taskCategory} from '../app/task-status.ts';
 import {platformDdls} from '../app/ddl-items.ts';
@@ -69,4 +69,23 @@ test('App 与挂件共用缩名，保留完整原文、标识、时间和跳转�
   assert.equal(widgetSnapshot(d,now).items.find(t=>t.id===first.id)?.title,'Homework 02');
   snapshot.assignments.find(a=>a.id==='collision')!.dueAt=null;
   assert.equal(widgetSnapshot(d,now).items.find(t=>t.id===first.id)?.title,'Homework 02');
+});
+
+/*
+  挂件那一行只放课程名。课程代码是「其他信息」，不该挤占窄挂件的位置 ——
+  但剥的时候不能把正常的课程名也剥坏，所以反向用例和正向用例一样重要。
+*/
+test('挂件只放课程名：课程代码剥掉，正常名字一个字符都不动',()=>{
+  assert.equal(courseNameOnly('CS204 操作系统'),'操作系统');
+  assert.equal(courseNameOnly('CS 204 操作系统'),'操作系统');
+  assert.equal(courseNameOnly('操作系统（CS204）'),'操作系统');
+  assert.equal(courseNameOnly('操作系统 (CS204)'),'操作系统');
+  assert.equal(courseNameOnly('操作系统 CS204'),'操作系统');
+  // 反向：没有代码的名字必须原样保留
+  assert.equal(courseNameOnly('Python 程序设计'),'Python 程序设计');
+  assert.equal(courseNameOnly('AI 导论'),'AI 导论');
+  assert.equal(courseNameOnly('线性代数 2'),'线性代数 2');
+  assert.equal(courseNameOnly('本机任务'),'本机任务');
+  // 整个名字就是一个代码时不能剥成空串
+  assert.equal(courseNameOnly('CS204'),'CS204');
 });

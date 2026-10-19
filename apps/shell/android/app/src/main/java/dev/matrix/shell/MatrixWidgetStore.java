@@ -29,6 +29,21 @@ public final class MatrixWidgetStore {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(LOCAL_READ_AT + widgetId, 0);
     }
 
+    /**
+     * 每个挂件当前停在哪一页。
+     *
+     * 页码存在本地而不是靠 ListView 的滚动位置 —— 现在一次只渲染一页，
+     * 页码是唯一真相；删挂件时随 `removeLocalRead` 一起清掉。
+     */
+    static int readPage(Context context, int widgetId) {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("page_" + widgetId, 0) == 1 ? 1 : 0;
+    }
+
+    static void writePage(Context context, int widgetId, int page) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("page_" + widgetId, page == 1 ? 1 : 0).apply();
+    }
+
     static void removeLocalRead(Context context, int widgetId) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(LOCAL_READ_AT + widgetId).remove("page_" + widgetId).apply();
     }

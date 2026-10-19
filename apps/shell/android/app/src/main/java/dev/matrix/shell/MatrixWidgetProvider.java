@@ -8,7 +8,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,10 +22,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
-/** 两个固定高度的整页，避免 StackView 的叠层内容与点击区域串页。 */
+/** 一次只渲染一页，点底部圆点切换；页内是静态行，没有嵌套滚动。 */
 public final class MatrixWidgetProvider extends AppWidgetProvider {
     public static final String ACTION_REFRESH = "dev.matrix.shell.widget.REFRESH";
     static final String ACTION_TAP = "dev.matrix.shell.widget.TAP";
+    private static final String ACTION_FLIP = "dev.matrix.shell.widget.FLIP";
+    private static final String EXTRA_TARGET_PAGE = "widgetTargetPage";
     private static final String ACTION_CLOCK = "dev.matrix.shell.widget.CLOCK";
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<Integer, Tap> TAPS = new HashMap<>();
@@ -53,6 +54,13 @@ public final class MatrixWidgetProvider extends AppWidgetProvider {
             int id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1);
             if (!active(c, id)) return;
             receiveTap(c.getApplicationContext(), id, intent);
+        } else if (ACTION_FLIP.equals(action)) {
+            // 点底部圆点：换页只改本地页码，不联网、不打扰用户
+            int id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1);
+            if (!active(c, id)) return;
+            int page = intent.getIntExtra(EXTRA_TARGET_PAGE, 0) == 1 ? 1 : 0;
+            MatrixWidgetStore.writePage(c, id, page);
+            refresh(c, AppWidgetManager.getInstance(c), id, null);
         } else if (ACTION_REFRESH.equals(action)) {
             MatrixWidgetSync.enqueue(c, true, true);
         } else if (ACTION_CLOCK.equals(action) || Intent.ACTION_TIME_CHANGED.equals(action)
@@ -117,20 +125,56 @@ public final class MatrixWidgetProvider extends AppWidgetProvider {
     }
 
     public static void refresh(Context c, AppWidgetManager m, int id, String unused) {
+        int page = MatrixWidgetStore.readPage(c, id);
         RemoteViews views = new RemoteViews(c.getPackageName(), R.layout.matrix_widget);
-        Intent adapter = new Intent(c, MatrixWidgetViewsService.class)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                .setData(Uri.parse("matrix-widget://pages/" + id));
-        views.setRemoteAdapter(R.id.widget_pages, adapter);
-        Intent tap = new Intent(c, MatrixWidgetProvider.class).setAction(ACTION_TAP)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                .setData(Uri.parse("matrix-widget://tap/" + id));
-        views.setPendingIntentTemplate(R.id.widget_pages, PendingIntent.getBroadcast(c, id, tap,
-                PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0)));
+        views.removeAllViews(R.id.widget_page_host);
+        views.addView(R.id.widget_page_host, MatrixWidgetPages.build(c, m, id, page));
+        views.setTextViewText(R.id.widget_page_label, c.getString(page == MatrixWidgetPages.PAGE_DDL
+                ? R.string.widget_page_ddl : R.string.widget_page_courses));
+        views.setImageViewResource(R.id.widget_dot_0, page == MatrixWidgetPages.PAGE_DDL
+                ? R.drawable.widget_dot_on : R.drawable.widget_dot_off);
+        views.setImageViewResource(R.id.widget_dot_1, page == MatrixWidgetPages.PAGE_COURSES
+                ? R.drawable.widget_dot_on : R.drawable.widget_dot_off);
+        views.setOnClickPendingIntent(R.id.widget_dot_hit_0, flipIntent(c, id, MatrixWidgetPages.PAGE_DDL));
+        views.setOnClickPendingIntent(R.id.widget_dot_hit_1, flipIntent(c, id, MatrixWidgetPages.PAGE_COURSES));
         m.updateAppWidget(id, views);
-        m.notifyAppWidgetViewDataChanged(id, R.id.widget_pages);
         MatrixWidgetStore.markLocalRead(c, id);
         scheduleClock(c, MatrixWidgetStore.readSnapshot(c));
+    }
+
+    /**
+     * 换页用的广播。
+     *
+     * 两个目标页各给一条独立的 data URI —— PendingIntent 的身份是
+     * (Intent 的 action/data/component + requestCode)，只靠 requestCode 区分
+     * 在挂件 id 很大时会溢出，靠 data 则永远唯一。
+     */
+    private static PendingIntent flipIntent(Context c, int id, int page) {
+        Intent intent = new Intent(c, MatrixWidgetProvider.class).setAction(ACTION_FLIP)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                .putExtra(EXTRA_TARGET_PAGE, page)
+                .setData(Uri.parse("matrix-widget://flip/" + id + "/" + page));
+        return PendingIntent.getBroadcast(c, 2, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /**
+     * 行/空白处的单击广播。
+     *
+     * 以前靠 `setPendingIntentTemplate` + fill-in intent 让集合自己填 extras；
+     * 现在不走集合了，每一行必须是**独立**的 PendingIntent：同一条 PendingIntent
+     * 的 extras 会被最后一次写入覆盖，点哪行都会开同一个条目。
+     * 所以 data 里带上 (页, 行号) 作为身份。
+     */
+    static PendingIntent tapIntent(Context c, int id, int page, int index, String item) {
+        int slot = index + 1; // -1（整页/空白）落到 0，行号从 1 起
+        Intent intent = new Intent(c, MatrixWidgetProvider.class).setAction(ACTION_TAP)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                .putExtra("widgetPageIndex", page)
+                .setData(Uri.parse("matrix-widget://tap/" + id + "/" + page + "/" + slot));
+        if (item != null) intent.putExtra("widgetItem", item);
+        return PendingIntent.getBroadcast(c, 1, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     static int heightDp(Context c, AppWidgetManager m, int id) {

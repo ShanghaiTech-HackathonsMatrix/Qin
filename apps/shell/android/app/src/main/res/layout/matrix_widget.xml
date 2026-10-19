@@ -1,13 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  一次只渲染一页：内容区（widget_page_host）由 provider 塞进当前页，
+  底部是一条「页名 + 两个圆点」的切换条。
+
+  以前这里是一个 ListView，两页当作两个撑满高度的列表项 —— 那是自由滚动，
+  不是翻页：短滑会停在两页中间，也没有任何页码线索。RemoteViews 做不了
+  滚动吸附，所以改成点击切换，位置永远确定。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root" android:layout_width="match_parent"
-    android:layout_height="match_parent" android:clipToOutline="true"
+    android:layout_height="match_parent" android:orientation="vertical"
+    android:clipToOutline="true"
     android:background="@drawable/matrix_widget_background">
-    <!-- 只有两个整页；页内使用静态行，不嵌套滚动列表。 -->
-    <ListView android:id="@+id/widget_pages" android:layout_width="match_parent"
-        android:layout_height="match_parent" android:divider="@null"
-        android:scrollbars="none" android:overScrollMode="never"
-        android:listSelector="@android:color/transparent" android:cacheColorHint="@android:color/transparent"
-        android:fastScrollEnabled="false" android:scrollingCache="false"
-        android:contentDescription="@string/widget_pages_description" />
-</FrameLayout>
+
+    <FrameLayout android:id="@+id/widget_page_host" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" />
+
+    <LinearLayout android:id="@+id/widget_bar" android:layout_width="match_parent"
+        android:layout_height="34dp" android:orientation="horizontal"
+        android:gravity="center_vertical" android:paddingStart="14dp" android:paddingEnd="6dp">
+
+        <TextView android:id="@+id/widget_page_label" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:maxLines="1" android:ellipsize="end"
+            android:textColor="@color/widget_secondary" android:textSize="10sp" />
+
+        <!-- 点左半边回待办，点右半边看今日课程；触点 36×34dp，比圆点本身大得多 -->
+        <LinearLayout android:id="@+id/widget_dot_hit_0" android:layout_width="36dp"
+            android:layout_height="34dp" android:gravity="center"
+            android:background="@drawable/matrix_widget_button"
+            android:contentDescription="@string/widget_previous_description">
+            <ImageView android:id="@+id/widget_dot_0" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:src="@drawable/widget_dot_off" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/widget_dot_hit_1" android:layout_width="36dp"
+            android:layout_height="34dp" android:gravity="center"
+            android:background="@drawable/matrix_widget_button"
+            android:contentDescription="@string/widget_next_description">
+            <ImageView android:id="@+id/widget_dot_1" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:src="@drawable/widget_dot_off" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

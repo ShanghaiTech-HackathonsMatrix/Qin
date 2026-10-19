@@ -51,4 +51,10 @@ export async function connectWidget(p:Platform){
   disconnect=()=>{unsubscribe();clearTimeout(timer);clearInterval(interval);document.removeEventListener('visibilitychange',resume);window.removeEventListener('matrix-widget',changed);};
   const state=await AndroidWidget.state();await AndroidWidget.configure({enabled:state.enabled});
   await p.academic.refreshBackground();
+  /*
+    装完新版本，桌面上的挂件仍然停在**上一次的 RemoteViews** 上 —— 它只在同步完成、
+    整点 worker、点按、开机这几种情况下重画，单纯打开 App 不在此列。于是渲染改了
+    却看不出变化，像是「没改」。进 App 时按已存的快照重画一遍，改动立刻生效。
+  */
+  await AndroidWidget.requestRefresh().catch(()=>{});
 }

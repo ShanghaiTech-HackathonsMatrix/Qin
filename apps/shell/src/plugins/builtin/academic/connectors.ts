@@ -121,6 +121,18 @@ export function createConnector(provider: Provider): PluginExports {
           // launchLink 的工具入口会跳转论坛、小组等；课程目录只需 toc_id。
           if (/\/launchLink\.jsp$/i.test(u.pathname) && !u.searchParams.has('toc_id')) continue;
           if (u.searchParams.get('course_id') && `blackboard:${u.searchParams.get('course_id')}`!==page.course!.id) continue;
+          /*
+            「已经交过的不用再搜」。
+            深度扫描的目的只有一个：把已经交掉、却因为不在「待完成作业」模块里
+            而读不到的作业补回来。上一轮已经确认是已提交 / 已批改的作业页，
+            状态不会再变回「没交」，重抓只是把同一个结论再读一遍，代价是一整页。
+            一轮扫描动辄几百页，重复跑全靠这一条省下来。
+          */
+          if (/\/assignment\/uploadAssignment(?:\.jsp)?$/i.test(u.pathname)) {
+            const native=u.searchParams.get('content_id')??u.searchParams.get('assign_group_id');
+            const known=native===null?undefined:snapshot.assignments.find(a=>a.id===`${page.course!.id}:assignment:${native}`);
+            if (known!==undefined && (known.status==='submitted'||known.status==='graded')) continue;
+          }
           u.hash='';
           if (seen.has(canonical(u.href))) continue;
           if (page.depth>=6) throw new Error('BB 内容目录超过 6 层，本轮未覆盖旧数据');

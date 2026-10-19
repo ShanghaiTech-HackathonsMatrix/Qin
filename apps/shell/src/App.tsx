@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { type Course, type Task } from './domain/types';
+import { EVENT_KIND_LABEL, type Course, type Task } from './domain/types';
 import { PlatformInitError, type Platform } from './platform/bootstrap';
 import { saveOverrides, type Overrides } from './platform/overrides';
 import type { ResolutionReport } from './platform/strategies/types';
@@ -770,13 +770,14 @@ export default function App() {
   const courseFor = useCallback((courseId: string) => courseOptions.find((course) => course.id === courseId)?.name ?? '个人任务', [courseOptions]);
   const formatDemoTime = (session: DemoClassSession) => `${String(session.startHour).padStart(2, '0')}:${String(session.startMinute).padStart(2, '0')}–${String(session.endHour).padStart(2, '0')}:${String(session.endMinute).padStart(2, '0')}`;
   /**
-   * 一行右侧那个小字：已提交 / 已完成 / 已逾期 / 哪天。
+   * 一行右侧那个小字：已完成 / 已逾期 / 哪天。
    *
    * 交过的作业不该再标「已逾期」—— 它已经交过了，逾不逾期没有意义。
-   * 平台作业说「已提交」，自己加的说「已完成」，两者不是一回事。
+   * 平台作业和自己加的任务在这里统一说「已完成」：对用户来说都是「这条已经结束了」，
+   * 平台到底叫它「已提交」还是「已评分」是实现细节，不该出现在状态位上。
    */
   const ddlStateLabel = (ddl: DdlItem, overdue: boolean): string => {
-    if (ddl.done === true) return ddl.provider === undefined ? '已完成' : '已提交 / 已完成';
+    if (ddl.done === true) return '已完成';
     if (ddl.needsReview) return '状态待确认';
     return overdue ? '已逾期' : dayLabelOf(ddl.dueAt, nowMs).label;
   };
@@ -986,17 +987,6 @@ const TAB_ICONS = {
   }, [platform, flash]);
 
   /** 挑选规则已抽到 app/ddl-items.ts，那里有 13 项断言盯着 */
-  /**
-   * 首页那三个数字说的是「手上有多少事」，不是「core Task 表里有多少行」。
-   *
-   * 平台同步回来的作业不是 core Task，只数 Task 的话，同步了 42 个作业
-   * 首页照样显示 00 待办 / 00 已逾期 —— 数字和下面的列表直接打架。
-   */
-  const openCount = useMemo(() => ddlItems.filter((d) => d.done !== true).length, [ddlItems]);
-  const overdueCount = useMemo(
-    () => ddlItems.filter((d) => d.done !== true && d.dueAt < nowMs).length,
-    [ddlItems, nowMs],
-  );
 
   const urgentDdls = useMemo(() => pickUrgent(ddlItems, nowMs), [ddlItems, nowMs]);
 
@@ -1035,12 +1025,39 @@ const TAB_ICONS = {
   const compactTitle=(item:{id:string;title:string})=>compactLabels.get(item.id)?.title??item.title;
   const compactMeta=(item:DdlItem)=>ddlMeta({...item,courseTitle:compactLabels.get(item.id)?.course||item.courseTitle},courseFor(item.courseId??''));
   const undatedPlatform=allUndatedPlatform.filter(a=>taskFilters.includes(taskCategory(a,nowMs))).sort(compareTasks);
+  /*
+    每一行带上「种类」。列表里光看标题分不出这是作业、测验还是 Pre，
+    得有个标记把它写出来。
+
+    平台拉回来的作业没有 kind 这个概念（`DdlItem` 里没有这个字段），
+    它们本来就是 DDL，所以统一记 'ddl'；本机任务照 `Task.kind` 如实写。
+    这样「平台识别的 DDL」和「手动存的 DDL」自然落进同一类 ——
+    区别在来源，那由旁边的「自建」标记负责说明，两件事别混成一件。
+  */
   const taskRows=[
-    ...logDdls.map(ddl=>({id:ddl.id,title:compactTitle(ddl),dueAt:ddl.dueAt,done:ddl.done,needsReview:ddl.needsReview,meta:compactMeta(ddl),open:()=>openDdl(ddl),task:visibleTasks.find(t=>t.id===(ddl.taskId??ddl.id)),platform:ddl.provider!==undefined})),
-    ...undatedPlatform.map(a=>({id:a.id,title:compactTitle(a),dueAt:a.dueAt,done:a.done,needsReview:a.needsReview,meta:`${compactLabels.get(a.id)?.course||a.courseTitle||'平台任务'} · 未提供截止时间`,open:()=>setAssignmentId(a.id),task:undefined,platform:true})),
-    ...undatedTasks.map(t=>({...localState(t),needsReview:false,meta:courseFor(t.courseId??'')||'本机任务',open:()=>setEditor({open:true,task:t}),task:t,platform:false})),
+    ...logDdls.map(ddl=>{
+      const task=visibleTasks.find(t=>t.id===(ddl.taskId??ddl.id));
+      return {id:ddl.id,title:compactTitle(ddl),dueAt:ddl.dueAt,done:ddl.done,needsReview:ddl.needsReview,meta:compactMeta(ddl),open:()=>openDdl(ddl),task,kind:task?.kind??'ddl',platform:ddl.provider!==undefined};
+    }),
+    ...undatedPlatform.map(a=>({id:a.id,title:compactTitle(a),dueAt:a.dueAt,done:a.done,needsReview:a.needsReview,meta:`${compactLabels.get(a.id)?.course||a.courseTitle||'平台任务'} · 未提供截止时间`,open:()=>setAssignmentId(a.id),task:undefined,kind:'ddl' as const,platform:true})),
+    ...undatedTasks.map(t=>({...localState(t),needsReview:false,meta:courseFor(t.courseId??'')||'本机任务',open:()=>setEditor({open:true,task:t}),task:t,kind:t.kind,platform:false})),
   ].sort(compareTasks);
-  const categoryCounts=Object.fromEntries(TASK_CATEGORIES.map(c=>[c.id,[...ddlItems,...allUndatedTasks.map(localState),...allUndatedPlatform].filter(t=>taskCategory(t,nowMs)===c.id).length]));
+  /*
+    首页那三个数字说的是「手上有多少事」，不是「core Task 表里有多少行」，
+    也不是「ddlItems 有多少行」。
+
+    `ddlItems` 只装**有截止时间**的条目。没有截止时间的自建任务和平台作业
+    进的是 `allUndatedTasks` / `allUndatedPlatform` —— 它们照样列在任务页上，
+    筛选按钮也数了它们。原来首页和底栏只数 `ddlItems`，于是列表上有 5 条、
+    底栏写着 4，用户一眼就能看出对不上。
+
+    所以数字和筛选按钮共用这一份 `allItems`：一份数据，四个数字，别再各数各的。
+  */
+  const allItems=[...ddlItems,...allUndatedTasks.map(localState),...allUndatedPlatform];
+  const categoryCounts=Object.fromEntries(TASK_CATEGORIES.map(c=>[c.id,allItems.filter(t=>taskCategory(t,nowMs)===c.id).length]));
+  /* 「待办任务」= 手上还没结束的事，含已逾期与待确认；「已逾期」是它的子集 */
+  const openCount=allItems.filter(t=>t.done!==true).length;
+  const overdueCount=categoryCounts.overdue;
   /** 首页与「日程」页共用同一份条目，避免两处各写一遍映射 */
   const scheduleEntries = useMemo<ScheduleEntry[]>(() => {
     const fromClasses: ScheduleEntry[] = DEMO_MODE && !hasAcademic
@@ -1520,10 +1537,11 @@ const TAB_ICONS = {
               : <div className="log-list">
               {taskRows.map(row=><SwipeRow key={row.id} open={swipedId===row.id} onOpenChange={v=>setSwipedId(v?row.id:null)}
                 actions={[{label:'编辑',onClick:row.open},...(row.platform?[{label:'隐藏',danger:true,onClick:()=>void hideAssignment(row.id)}]:row.task?[{label:'删除',danger:true,onClick:()=>void deleteTask(row.id)}]:[])]}>
-                <button className="log-row" data-overdue={taskCategory(row,nowMs)==='overdue'} data-done={row.done===true} onClick={row.open}>
+                <button className="log-row" data-kind={row.kind} data-overdue={taskCategory(row,nowMs)==='overdue'} data-done={row.done===true} onClick={row.open}>
                   <span className="log-row__due"><b>{row.dueAt===null?'—':formatDue(row.dueAt)}</b><em>{TASK_CATEGORIES.find(c=>c.id===taskCategory(row,nowMs))?.label}</em></span>
                   <span className="log-row__body"><strong>{row.title}{!row.platform&&<span className="tag-self">自建</span>}</strong><small>{row.meta}</small></span>
                   <span className="log-row__arrow" aria-hidden="true">↗</span>
+                  <span className="log-row__kind">{EVENT_KIND_LABEL[row.kind]}</span>
                 </button>
               </SwipeRow>)}
             </div>}
@@ -1532,7 +1550,7 @@ const TAB_ICONS = {
 
         {tab === 'timetable' && (
           <>
-            <div className="quest-section__head quest-section__head--spaced">
+            <div className="quest-section__head">
               <h2>每周课表</h2>
               <span className="quest-section__ornament">
                 {timetable === null || timetable.days.length === 0
@@ -1585,7 +1603,7 @@ const TAB_ICONS = {
         {tab === 'courses' && (
           <>
             {/* 「课程」改成每日日程：课次与 DDL 混排，按天分组。 */}
-            <div className="quest-section__head quest-section__head--spaced"><h2>每日日程</h2><span className="quest-section__ornament">{hasAcademic ? '未来两周' : DEMO_MODE ? '演示课表' : '按天分组'}</span></div>
+            <div className="quest-section__head"><h2>每日日程</h2><span className="quest-section__ornament">{hasAcademic ? '未来两周' : DEMO_MODE ? '演示课表' : '按天分组'}</span></div>
             <ScheduleView
               days={scheduleDays}
               focus={scheduleFocus}

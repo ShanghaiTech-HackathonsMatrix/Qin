@@ -106,6 +106,29 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
     }
   };
 
+  /**
+   * 补全「本学期已经交掉的作业」。
+   *
+   * 日常同步走的是门户上那个「待完成作业」模块 —— 顾名思义，里面只有**没交**的。
+   * 已经提交的作业不在那个模块里，所以快路无论跑多少次都读不到它们，
+   * 「已完成」永远是空的。这不是解析器的问题，是那一页本身就没有这些数据。
+   *
+   * 唯一能读到它们的是逐门课扫描（`scanMode:'deep'`）：走课程目录翻到每个
+   * 作业页，页面上写着「已提交 / 复查提交历史记录」时解析器会记成 `submitted`，
+   * 于是它就有了「已完成」的身份。
+   *
+   * 为什么做成一次性按钮而不是常开：读回来之后这些条目会留在快照里，
+   * 后面的日常同步只把「不是已提交」的条目当成可疑对象（见 connectors.ts 里
+   * 那段 missing 过滤），所以补一次就够了，没必要每次同步都慢一遍。
+   */
+  const runDeepSync = async () => {
+    setNote({ tone: 'info', text: '正在逐门课翻作业列表，会慢一些…已提交的作业会补进来。' });
+    await academic.sync('blackboard', true);
+    const snapshot = academic.snapshots.find((s) => s.provider === 'blackboard');
+    const done = snapshot?.assignments.filter((a) => a.status === 'submitted' || a.status === 'graded').length ?? 0;
+    setNote({ tone: 'ok', text: `扫描完成：已提交 / 已批改 ${done} 项，已经进「已完成」了` });
+  };
+
   return (
     <div className="stack">
       {!academic.available && (
@@ -168,6 +191,21 @@ function PlatformConnections({ academic, simulated }: { academic: AcademicServic
               </button>
               <button className="btn btn--sm" disabled={busy} onClick={()=>void run(()=>academic.setEnabled(item.id,academic.enabled[item.id]===false))}>{academic.enabled[item.id]===false?'启用':'停用'}</button>
             </div>
+            {/*
+              只有互动教学平台需要这颗按钮：Gradescope 的课程页本来就列着全部作业
+              （含已提交），快路就能读到；BB 的「待完成作业」模块则结构性地只有未提交的。
+            */}
+            {item.id === 'blackboard' && (
+              <div className="conn__deep">
+                <button
+                  className="btn btn--sm"
+                  disabled={busy || !academic.available || academic.enabled[item.id] === false}
+                  onClick={() => void run(runDeepSync)}
+                >
+                  {busy ? '处理中…' : '补全本学期已提交的作业'}
+                </button>
+              </div>
+            )}
             {item.id==='blackboard'&&snapshot&&<details><summary>打开 BB 课程网页</summary>{snapshot.courses.map(c=><p key={c.id}><button className="btn btn--sm" onClick={()=>void run(()=>openExternal(c.url))}>{c.title}</button></p>)}</details>}
           </div>
         );

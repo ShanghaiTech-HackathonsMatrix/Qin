@@ -60,6 +60,29 @@ test('BB 保留稳定作业ID并读取中文截止时间与未提交状态',()=>
   assert.equal(a?.dueText,'2026年10月20日 星期二 下午11:59');
 });
 
+/*
+  互动教学平台「已完成」里为什么一条都没有 —— 因为日常同步只读门户的
+  「待完成作业」模块，已提交的作业根本不在那一页上。补全它们只能靠逐门课扫描，
+  而那条路依赖的就是这里：作业页上写着「已提交」时必须读成 submitted。
+  读不出来，深度扫描跑完也是空的。
+*/
+test('BB 已提交 / 已批改读成 submitted，未提交不会被误判成已提交',()=>{
+  const c={...course,id:'blackboard:_1_1',provider:'blackboard' as const};
+  const at='https://elearning.shanghaitech.edu.cn:8443/webapps/assignment/uploadAssignment?content_id=_2_1';
+  const page=(body:string,title='作业: 练习')=>`<h1 id="pageTitleHeader">${title}</h1>${body}`;
+
+  const submitted=blackboardAssignment(page('截止日期：2026年10月10日 星期二 下午11:59 已提交'),at,c,'');
+  assert.equal(submitted?.status,'submitted');
+
+  // 标题写「复查提交历史记录」本身就说明交过了，正文里没再写一遍也算
+  const byTitle=blackboardAssignment(page('截止日期：2026年10月10日 星期二 下午11:59','复查提交历史记录: 练习'),at,c,'');
+  assert.equal(byTitle?.status,'submitted');
+
+  // 反向：未提交不能被当成已提交，否则「已完成」会混进没交的作业
+  const pending=blackboardAssignment(page('截止日期：2026年10月20日 星期二 下午11:59 未提交'),at,c,'');
+  assert.equal(pending?.status,'not_submitted');
+});
+
 test('平台原文只留日期：整页文本里截出来的那 100 个字不再原样显示',()=>{
   /*
     真实页面是长这样的：`text()` 把整页压成一行，`截止日期` 后面跟着的是
@@ -324,4 +347,52 @@ test('BB pending 只读门户与作业详情；消失不标完成；8条核对�
   const second=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:20,settings:{previousSnapshot:JSON.stringify(previous)}});assert.ok(second.ok);assert.equal(second.data.requests,9);
   const read=host.bus.read(PLUGIN_IDS.blackboard,SNAPSHOT,{owner:PLUGIN_IDS.blackboard});assert.ok(read.ok);
   const saved=JSON.parse(String(read.data[0].data.json)) as AcademicSnapshot;assert.equal(saved.assignments.length,10);assert.ok(saved.assignments.every(a=>a.status!=='submitted'));assert.equal(saved.assignments[0].verifiedAt,20);assert.equal(saved.assignments[7].needsReview,true);assert.equal(saved.assignments[8].needsReview,true);
+});
+
+/*
+  「补全」的扫描范围：只到「未完成课程列表」，已完成课程列表里的课一次都不碰。
+  这条不是新加的行为（`blackboardCurrentCourses` 本来就只读那个模块），
+  但它很容易在改动里被悄悄放大成「扫全部课程」—— 那会把一轮几十页变成几百页，
+  所以钉住请求数，而不是钉注释。
+*/
+const bbPortalTwoLists='<span class="moduleTitle">未完成课程列表</span>'
+  +'<a href="/webapps/blackboard/execute/launcher?type=Course&id=_1_1&course_id=_1_1">还在上的课</a>'
+  +'<span class="moduleTitle">已完成课程列表</span>'
+  +'<a href="/webapps/blackboard/execute/launcher?type=Course&id=_9_9&course_id=_9_9">上学期的课</a>'
+  +'<span class="moduleTitle">待完成作业</span>';
+const bbCourseUrl=(id:string)=>`${new URL(ENTRY.blackboard).origin}/webapps/blackboard/execute/launcher?course_id=${id}&id=${id}&type=Course`;
+
+test('深度扫描只翻「未完成课程列表」里的课，已完成课程列表里的课一次都不请求',async()=>{
+  const transport=new MockTransport(),host=new PluginHost({core:createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.blackboard).hostname],retryCount:0}}}),modules:new Map([[PLUGIN_IDS.blackboard,createConnector('blackboard')]])});
+  assert.ok((await host.install(connectorManifest('blackboard'),{allowReservedPrefix:true})).ok);
+  transport.queue(ENTRY.blackboard,{status:200,body:bbPortalTwoLists});
+  transport.queue(bbCourseUrl('_1_1'),{status:200,body:`<a href="${bbUrl(1)}">作业1</a>`});
+  transport.queue(bbUrl(1),{status:200,body:'<h1 id="pageTitleHeader">作业: 练习</h1>作业信息 截止日期：2026年10月10日 下午11:59 已提交'});
+
+  const result=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:10,settings:{scanMode:'deep'}});
+  assert.ok(result.ok);
+  assert.equal(result.data.requests,3,'门户 + 课程页 + 作业页，没有第四页');
+  assert.ok(!transport.calls.some(c=>c.url.includes('_9_9')),'已完成课程列表里的课不该被扫描');
+  const read=host.bus.read(PLUGIN_IDS.blackboard,SNAPSHOT,{owner:PLUGIN_IDS.blackboard});assert.ok(read.ok);
+  const saved=JSON.parse(String(read.data[0].data.json)) as AcademicSnapshot;
+  assert.equal(saved.assignments[0]?.status,'submitted','深度扫描要能把「已提交」读回来');
+});
+
+test('已经补过的已提交作业不再重抓：第二轮只剩门户和课程页',async()=>{
+  const transport=new MockTransport(),host=new PluginHost({core:createCore({transport,gateway:{config:{allowlist:[new URL(ENTRY.blackboard).hostname],retryCount:0}}}),modules:new Map([[PLUGIN_IDS.blackboard,createConnector('blackboard')]])});
+  assert.ok((await host.install(connectorManifest('blackboard'),{allowReservedPrefix:true})).ok);
+  const previous:AcademicSnapshot={provider:'blackboard',syncedAt:10,courses:[bbCourse],rules:[],periods:[],semester:'',assignments:[
+    {id:'blackboard:_1_1:assignment:_1_1',courseId:bbCourse.id,title:'作业1',url:bbUrl(1),provider:'blackboard',status:'submitted',dueAt:100,dueText:'',lateDueAt:null},
+  ]};
+  transport.queue(ENTRY.blackboard,{status:200,body:bbPortalTwoLists});
+  transport.queue(bbCourseUrl('_1_1'),{status:200,body:`<a href="${bbUrl(1)}">作业1</a>`});
+
+  const result=await host.sync(PLUGIN_IDS.blackboard,{trigger:'manual',now:20,settings:{scanMode:'deep',previousSnapshot:JSON.stringify(previous)}});
+  assert.ok(result.ok);
+  assert.equal(result.data.requests,2,'已提交的作业页不该再抓一遍');
+  assert.ok(!transport.calls.some(c=>c.url===bbUrl(1)));
+  const read=host.bus.read(PLUGIN_IDS.blackboard,SNAPSHOT,{owner:PLUGIN_IDS.blackboard});assert.ok(read.ok);
+  const saved=JSON.parse(String(read.data[0].data.json)) as AcademicSnapshot;
+  assert.equal(saved.assignments.length,1,'跳过的作业要留在快照里，不能因为没重抓就被丢掉');
+  assert.equal(saved.assignments[0]?.status,'submitted');
 });

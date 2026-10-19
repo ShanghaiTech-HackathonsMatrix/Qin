@@ -28,7 +28,7 @@ export interface Course {
 
 export const EVENT_KIND_LABEL: Record<EventKind, string> = {
   ddl: 'DDL',
-  course: '课程',
+  course: 'Pre',
   quiz: '测验',
   checkin: '签到',
   custom: '自定义',

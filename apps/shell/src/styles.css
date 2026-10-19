@@ -895,6 +895,9 @@ details.conn[open] > summary .conn__chev { transform: rotate(180deg); }
 .conn__warning { margin: 0; font-size: calc(11px * var(--font-base) * var(--font-scale)); line-height: 1.6; color: #555; }
 .conn__actions { display: flex; gap: 8px; margin-top: 12px; }
 .conn__actions .btn { flex: 1; }
+/* 深度扫描入口：单独一行，不和 登录 / 同步 / 停用 挤在一排 */
+.conn__deep { margin-top: 10px; }
+.conn__deep .btn { width: 100%; }
 .conn__note { margin: 10px 0 0; padding: 9px 10px; font-size: calc(11px * var(--font-base) * var(--font-scale)); line-height: 1.6; border-radius: 6px; border: 1.5px solid #111; }
 .conn__note[data-tone='bad'] { background: #111; color: #fff; }
 .conn__note[data-tone='info'] { background: #f7f7f3; }
@@ -1113,6 +1116,29 @@ details.conn[open] > summary .conn__chev { transform: rotate(180deg); }
 /* 逾期行整块压灰，标记也跟着淡一点，但别淡到看不见 */
 .log-row[data-overdue='true'] .tag-self,
 .ddl-card[data-overdue='true'] .tag-self { border-color: #d5d5cf; color: #94948e; }
+/*
+  种类：卡片右下角的灰色小字。
+
+  原来是标题后面挂一个小方框，但那一行已经有「自建」标记了 ——
+  两个方框并排会把标题挤掉。挪到右下角之后它退成注脚：
+  看标题时看不见它，要找的时候一低头就有。
+
+  `pointer-events: none` 是必须的：它浮在卡片上，不能把点击吃掉。
+*/
+.log-row { position: relative; }
+.log-row__kind {
+  position: absolute;
+  right: 11px;
+  bottom: 5px;
+  font-size: calc(11px * var(--font-base) * var(--font-scale));
+  letter-spacing: .04em;
+  color: #a5a59e;
+  pointer-events: none;
+}
+/* 注脚占住了右下角，来源那行提前收笔，别写进去（字放大后这里也要跟着放宽） */
+.log-row__body small { padding-right: 50px; }
+/* 逾期行整块压灰时，注脚再淡一档 */
+.log-row[data-overdue='true'] .log-row__kind { color: #b8b8b2; }
 
 /*
   左滑露出的操作条。
@@ -1271,6 +1297,25 @@ button.log-row:active { background: #f0f0ec; }
 }
 /* 平台作业（只能隐藏不能删）保留虚线底边 */
 .app[data-layout='list'] .log-row[data-static='true'] { border-bottom-style: dashed; }
+/*
+  按种类给整行上灰度。整套是黑白的，灰度是这里唯一还空着的维度 ——
+  颜色不能加，深浅可以。
+
+  阶梯刻意做得浅：DDL 是绝大多数行，保持纯白不动；越往上越深，
+  Pre 最深，因为它是三类里最该被看见的那一类。
+
+  两个坑：
+    · 选择器带 `.app` 是为了压过列表布局那条 `background: none`
+      （同为 0,3,0，靠写在后面赢）。不加的话列表模式下灰度整个失效。
+    · 逾期在列表模式下有更重的底色（0,4,0），仍然压得住灰度 ——
+      「逾期」比「种类」更该先说，这个优先级不能反。
+*/
+.app .log-row[data-kind='custom'] { background: #fbfbf6; }
+.app .log-row[data-kind='checkin'] { background: #f4f4ee; }
+.app .log-row[data-kind='quiz'] { background: #ebeae2; }
+.app .log-row[data-kind='course'] { background: #dfdcd0; }
+/* 按下时的反馈要盖得住灰度底，否则有色行点了没反应 */
+.app button.log-row[data-kind]:active { background: #f0f0ec; }
 
 /*
   课程在卡片模式是反白卡（`background:#111; color:#fff`）。列表模式把底色
